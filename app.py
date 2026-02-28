@@ -373,7 +373,7 @@ def plot_relative_breadth(df):
     
     # Nirnay-style bi-color oscillator fill based on mean
     mean_val = 0.46
-    colors = ['#10b981' if v < 0.4 else '#ef4444' if v > 0.52 else '#888888' for v in df['Relative_Breadth']]
+    colors = ['#10b981' if v < 0.4 else '#ef4444' if v > 0.5 else '#888888' for v in df['Relative_Breadth']]
     
     # Red fill above mean (Overbought bias)
     fig.add_trace(go.Scatter(x=df['Date'], y=[mean_val]*len(df), line=dict(width=0), showlegend=False, hoverinfo='skip'))
@@ -399,7 +399,7 @@ def plot_relative_breadth(df):
     ))
     
     # Mean and Threshold Lines
-    fig.add_hline(y=0.52, line=dict(color='rgba(239,68,68,0.5)', width=1, dash='dash'))
+    fig.add_hline(y=0.5, line=dict(color='rgba(239,68,68,0.5)', width=1, dash='dash'))
     fig.add_hline(y=0.40, line=dict(color='rgba(16,185,129,0.5)', width=1, dash='dash'))
     fig.add_hline(y=mean_val, line=dict(color='rgba(255,255,255,0.2)', width=1))
     
@@ -422,7 +422,7 @@ def plot_custom_breadth(df):
     fig = go.Figure()
     
     mean_val = 0.46
-    colors = ['#10b981' if v < 0.4 else '#ef4444' if v > 0.52 else '#888888' for v in df['Custom_Breadth']]
+    colors = ['#10b981' if v < 0.4 else '#ef4444' if v > 0.5 else '#888888' for v in df['Custom_Breadth']]
     
     # Red fill above mean (Overbought bias)
     fig.add_trace(go.Scatter(x=df['Date'], y=[mean_val]*len(df), line=dict(width=0), showlegend=False, hoverinfo='skip'))
@@ -447,7 +447,7 @@ def plot_custom_breadth(df):
         marker=dict(size=6, color=colors, line=dict(width=0))
     ))
     
-    fig.add_hline(y=0.52, line=dict(color='rgba(239,68,68,0.5)', width=1, dash='dash'))
+    fig.add_hline(y=0.5, line=dict(color='rgba(239,68,68,0.5)', width=1, dash='dash'))
     fig.add_hline(y=0.40, line=dict(color='rgba(16,185,129,0.5)', width=1, dash='dash'))
     fig.add_hline(y=mean_val, line=dict(color='rgba(255,255,255,0.2)', width=1))
     
