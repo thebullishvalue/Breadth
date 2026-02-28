@@ -31,7 +31,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-VERSION = "v1.5.0 (Nirnay Sync)"
+VERSION = "v1.6.0 (Universe Sync)"
 PRODUCT_NAME = "Market Breadth"
 COMPANY = "Hemrek Capital"
 
@@ -201,11 +201,51 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# CRASH-PROOF DATA ENGINE
+# CONSTANTS & UNIVERSE LISTS
 # ══════════════════════════════════════════════════════════════════════════════
 
-NIFTY_500_URL = "https://www.niftyindices.com/IndexConstituent/ind_nifty500list.csv"
-NIFTY_500_WIKI = "https://en.wikipedia.org/wiki/NIFTY_500"
+INDIA_INDEX_LIST = [
+    "NIFTY 50", "NIFTY NEXT 50", "NIFTY 100", "NIFTY 200", "NIFTY 500",
+    "NIFTY MIDCAP 50", "NIFTY MIDCAP 100", "NIFTY SMLCAP 100", "NIFTY BANK",
+    "NIFTY AUTO", "NIFTY FIN SERVICE", "NIFTY FMCG", "NIFTY IT",
+    "NIFTY MEDIA", "NIFTY METAL", "NIFTY PHARMA"
+]
+
+US_INDEX_LIST = ["S&P 500", "DOW JONES", "NASDAQ 100"]
+
+ANALYSIS_UNIVERSE_OPTIONS = ["India Indexes", "US Indexes"]
+
+BASE_URL = "https://www.niftyindices.com/IndexConstituent/"
+INDEX_URL_MAP = {
+    "NIFTY 50": f"{BASE_URL}ind_nifty50list.csv",
+    "NIFTY NEXT 50": f"{BASE_URL}ind_niftynext50list.csv",
+    "NIFTY 100": f"{BASE_URL}ind_nifty100list.csv",
+    "NIFTY 200": f"{BASE_URL}ind_nifty200list.csv",
+    "NIFTY 500": f"{BASE_URL}ind_nifty500list.csv",
+    "NIFTY MIDCAP 50": f"{BASE_URL}ind_niftymidcap50list.csv",
+    "NIFTY MIDCAP 100": f"{BASE_URL}ind_niftymidcap100list.csv",
+    "NIFTY SMLCAP 100": f"{BASE_URL}ind_niftysmallcap100list.csv",
+    "NIFTY BANK": f"{BASE_URL}ind_niftybanklist.csv",
+    "NIFTY AUTO": f"{BASE_URL}ind_niftyautolist.csv",
+    "NIFTY FIN SERVICE": f"{BASE_URL}ind_niftyfinancelist.csv",
+    "NIFTY FMCG": f"{BASE_URL}ind_niftyfmcglist.csv",
+    "NIFTY IT": f"{BASE_URL}ind_niftyitlist.csv",
+    "NIFTY MEDIA": f"{BASE_URL}ind_niftymedialist.csv",
+    "NIFTY METAL": f"{BASE_URL}ind_niftymetallist.csv",
+    "NIFTY PHARMA": f"{BASE_URL}ind_niftypharmalist.csv"
+}
+
+INDIA_INDEX_WIKI_MAP = {
+    "NIFTY 50": "https://en.wikipedia.org/wiki/NIFTY_50",
+    "NIFTY NEXT 50": "https://en.wikipedia.org/wiki/NIFTY_Next_50",
+    "NIFTY 500": "https://en.wikipedia.org/wiki/NIFTY_500",
+}
+
+DOW_JONES_TICKERS = [
+    "AMZN", "AMGN", "AAPL", "BA", "CAT", "CSCO", "CVX", "GS", "HD", "HON",
+    "IBM", "JNJ", "JPM", "KO", "MCD", "MMM", "MRK", "MSFT", "NKE", "PG",
+    "CRM", "SHW", "TRV", "UNH", "V", "VZ", "WMT", "DIS", "DOW", "NVDA"
+]
 
 FALLBACK_TICKERS = [
     "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "ICICIBANK.NS", "BHARTIARTL.NS", "INFY.NS", 
@@ -213,31 +253,150 @@ FALLBACK_TICKERS = [
     "AXISBANK.NS", "MARUTI.NS", "SUNPHARMA.NS", "ULTRACEMCO.NS", "TATAMOTORS.NS"
 ]
 
+# ══════════════════════════════════════════════════════════════════════════════
+# CRASH-PROOF DATA ENGINE
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _fetch_india_index_from_wikipedia(index):
+    """Fallback: Fetch Indian index constituents from Wikipedia"""
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+
+    def _parse_wiki_table(url, min_count=10):
+        try:
+            response = requests.get(url, headers=headers, timeout=15)
+            response.raise_for_status()
+            tables = pd.read_html(io.StringIO(response.text))
+            for tbl in tables:
+                if 'Symbol' in tbl.columns:
+                    symbols = tbl['Symbol'].dropna().astype(str).str.strip().tolist()
+                    symbols = [s for s in symbols if s and len(s) <= 20 and s != 'nan']
+                    if len(symbols) >= min_count:
+                        return symbols
+        except Exception:
+            pass
+        return None
+
+    try:
+        if index == "NIFTY 100":
+            n50 = _parse_wiki_table(INDIA_INDEX_WIKI_MAP["NIFTY 50"], min_count=40)
+            nn50 = _parse_wiki_table(INDIA_INDEX_WIKI_MAP["NIFTY NEXT 50"], min_count=40)
+            if n50 and nn50:
+                combined = list(dict.fromkeys(n50 + nn50))
+                symbols_ns = [s + ".NS" for s in combined]
+                return symbols_ns, f"⚠ Fetched {len(symbols_ns)} {index} constituents from Wikipedia"
+            return None, "Wikipedia fallback failed for NIFTY 100"
+
+        if index == "NIFTY 200":
+            symbols = _parse_wiki_table(INDIA_INDEX_WIKI_MAP["NIFTY 500"], min_count=100)
+            if symbols:
+                symbols_200 = symbols[:200]
+                symbols_ns = [s + ".NS" for s in symbols_200]
+                return symbols_ns, f"⚠ Fetched {len(symbols_ns)} {index} constituents from Wikipedia"
+            return None, "Wikipedia fallback failed for NIFTY 200"
+
+        wiki_url = INDIA_INDEX_WIKI_MAP.get(index)
+        if wiki_url:
+            min_expected = {"NIFTY 50": 40, "NIFTY NEXT 50": 40, "NIFTY 500": 400}.get(index, 10)
+            symbols = _parse_wiki_table(wiki_url, min_count=min_expected)
+            if symbols:
+                symbols_ns = [s + ".NS" for s in symbols]
+                return symbols_ns, f"⚠ Fetched {len(symbols_ns)} {index} constituents from Wikipedia"
+            return None, f"Wikipedia fallback: could not parse {index} table"
+
+        return None, None
+    except Exception as e:
+        return None, f"Wikipedia fallback error: {e}"
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_index_constituents():
-    """Fetch constituents with multi-tier failsafes."""
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-    
-    try:
-        response = requests.get(NIFTY_500_URL, headers=headers, verify=False, timeout=5)
-        response.raise_for_status()
-        df = pd.read_csv(io.StringIO(response.text))
-        if 'Symbol' in df.columns:
-            return [str(s) + ".NS" for s in df['Symbol'].tolist() if s and str(s).strip()], "Success: Fetched from NSE."
-    except Exception: pass
+def get_index_stock_list(index):
+    """Fetch Indian index constituents from NSE Indices with Wikipedia fallback"""
+    url = INDEX_URL_MAP.get(index)
+    if not url:
+        return FALLBACK_TICKERS, f"Error: No URL for {index}. Using fallback tickers."
 
     try:
-        response = requests.get(NIFTY_500_WIKI, headers=headers, timeout=8)
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        response = requests.get(url, headers=headers, verify=False, timeout=10)
         response.raise_for_status()
-        tables = pd.read_html(io.StringIO(response.text))
-        for tbl in tables:
-            if 'Symbol' in tbl.columns:
-                symbols = tbl['Symbol'].dropna().astype(str).str.strip().tolist()
-                symbols_ns = [s + ".NS" for s in symbols if s and len(s) <= 20 and s != 'nan']
-                if len(symbols_ns) > 400: return symbols_ns, "Warning: Loaded via Wiki."
-    except Exception: pass
+        
+        csv_file = io.StringIO(response.text)
+        stock_df = pd.read_csv(csv_file)
+        
+        if 'Symbol' in stock_df.columns:
+            symbols = stock_df['Symbol'].tolist()
+            symbols_ns = [str(s) + ".NS" for s in symbols if s and str(s).strip()]
+            return symbols_ns, f"Success: Fetched {len(symbols_ns)} constituents from NSE."
+            
+    except Exception:
+        pass
 
-    return FALLBACK_TICKERS, f"Error: Using Top {len(FALLBACK_TICKERS)} liquid constituents."
+    wiki_result, wiki_msg = _fetch_india_index_from_wikipedia(index)
+    if wiki_result:
+        return wiki_result, wiki_msg
+
+    return FALLBACK_TICKERS, f"Error: Exchange and Wiki endpoints failed. Using top {len(FALLBACK_TICKERS)} liquid fallback constituents."
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_us_index_stock_list(index):
+    """Fetch US index constituents from Wikipedia with hardcoded fallback for Dow Jones"""
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        
+        if index == "S&P 500":
+            url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+            response = requests.get(url, headers=headers, timeout=15)
+            response.raise_for_status()
+            tables = pd.read_html(io.StringIO(response.text))
+            if tables:
+                df = tables[0]
+                if 'Symbol' in df.columns:
+                    symbols = df['Symbol'].str.strip().str.replace('.', '-', regex=False).tolist()
+                    symbols = [s for s in symbols if s and str(s).strip()]
+                    return symbols, f"Success: Fetched {len(symbols)} S&P 500 constituents"
+            return None, "Could not parse S&P 500 table"
+            
+        elif index == "DOW JONES":
+            try:
+                url = "https://en.wikipedia.org/wiki/Dow_Jones_Industrial_Average"
+                response = requests.get(url, headers=headers, timeout=15)
+                response.raise_for_status()
+                tables = pd.read_html(io.StringIO(response.text))
+                for tbl in tables:
+                    for col in ['Symbol', 'Ticker', 'Ticker symbol']:
+                        if col in tbl.columns:
+                            symbols = tbl[col].str.strip().tolist()
+                            symbols = [s for s in symbols if s and str(s).strip() and len(s) <= 5]
+                            if 20 <= len(symbols) <= 35:
+                                return symbols, f"Success: Fetched {len(symbols)} Dow Jones constituents"
+            except Exception:
+                pass
+            return DOW_JONES_TICKERS.copy(), f"Success: Loaded {len(DOW_JONES_TICKERS)} Dow Jones constituents"
+            
+        elif index == "NASDAQ 100":
+            url = "https://en.wikipedia.org/wiki/Nasdaq-100"
+            response = requests.get(url, headers=headers, timeout=15)
+            response.raise_for_status()
+            tables = pd.read_html(io.StringIO(response.text))
+            for tbl in tables:
+                if 'Ticker' in tbl.columns:
+                    symbols = tbl['Ticker'].str.strip().str.replace('.', '-', regex=False).tolist()
+                    symbols = [s for s in symbols if s and str(s).strip()]
+                    if len(symbols) >= 90:
+                        return symbols, f"Success: Fetched {len(symbols)} NASDAQ 100 constituents"
+                elif 'Symbol' in tbl.columns:
+                    symbols = tbl['Symbol'].str.strip().str.replace('.', '-', regex=False).tolist()
+                    symbols = [s for s in symbols if s and str(s).strip()]
+                    if len(symbols) >= 90:
+                        return symbols, f"Success: Fetched {len(symbols)} NASDAQ 100 constituents"
+            return None, "Could not parse NASDAQ 100 table"
+        
+        return None, f"Unknown US index: {index}"
+        
+    except Exception as e:
+        return None, f"Error fetching {index}: {e}"
+
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_market_data(stock_list, start_date, end_date):
@@ -300,6 +459,9 @@ def compute_timeseries(close_df, start_ts, end_ts):
     
     breadth_df = breadth_df[breadth_df['Total'] >= 10].copy()
     
+    if breadth_df.empty:
+        return None, pd.DataFrame()
+        
     breadth_df['Net_Advances'] = breadth_df['Advances'] - breadth_df['Declines']
     
     breadth_df['AD_Ratio'] = np.where(
@@ -340,7 +502,7 @@ def compute_timeseries(close_df, start_ts, end_ts):
     Z = (ma2 + ma3 + ma5 + ma8 + ma13 + ma21) / 6.0
     breadth_df['Relative_Breadth'] = (Z + cb) / 2.0
     
-    # 7. NOW FILTER to the User's Requested Timeframe
+    # NOW FILTER to the User's Requested Timeframe
     view_mask = (breadth_df['Date'] >= start_ts) & (breadth_df['Date'] <= end_ts)
     final_breadth_df = breadth_df.loc[view_mask].copy().reset_index(drop=True)
     
@@ -350,18 +512,23 @@ def compute_timeseries(close_df, start_ts, end_ts):
     final_breadth_df['AD_Line'] = final_breadth_df['AD_Line'] - final_breadth_df['AD_Line'].iloc[0]
     
     last_date = final_breadth_df['Date'].iloc[-1]
-    last_changes = pct_change_df.loc[last_date]
-    last_prices = close_df.loc[last_date]
     
-    movers_df = pd.DataFrame({
-        'Symbol': [str(s).replace('.NS', '') for s in last_changes.index],
-        'Price': last_prices.values,
-        'Change_%': last_changes.values * 100
-    })
-    
-    conditions = [movers_df['Change_%'] > 0, movers_df['Change_%'] < 0]
-    movers_df['Status'] = np.select(conditions, ['Advance', 'Decline'], default='Unchanged')
-    
+    # Fix for last date if not perfectly matched in original df
+    if last_date in pct_change_df.index:
+        last_changes = pct_change_df.loc[last_date]
+        last_prices = close_df.loc[last_date]
+        
+        movers_df = pd.DataFrame({
+            'Symbol': [str(s).replace('.NS', '') for s in last_changes.index],
+            'Price': last_prices.values,
+            'Change_%': last_changes.values * 100
+        })
+        
+        conditions = [movers_df['Change_%'] > 0, movers_df['Change_%'] < 0]
+        movers_df['Status'] = np.select(conditions, ['Advance', 'Decline'], default='Unchanged')
+    else:
+        movers_df = pd.DataFrame()
+        
     return final_breadth_df, movers_df
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -371,11 +538,9 @@ def compute_timeseries(close_df, start_ts, end_ts):
 def plot_relative_breadth(df):
     fig = go.Figure()
     
-    # Nirnay-style bi-color oscillator fill based on mean
     mean_val = 0.46
     colors = ['#10b981' if v < 0.4 else '#ef4444' if v > 0.5 else '#888888' for v in df['Relative_Breadth']]
     
-    # Red fill above mean (Overbought bias)
     fig.add_trace(go.Scatter(x=df['Date'], y=[mean_val]*len(df), line=dict(width=0), showlegend=False, hoverinfo='skip'))
     fig.add_trace(go.Scatter(
         x=df['Date'], y=df['Relative_Breadth'].clip(lower=mean_val),
@@ -383,7 +548,6 @@ def plot_relative_breadth(df):
         line=dict(width=0), showlegend=False, hoverinfo='skip'
     ))
     
-    # Green fill below mean (Oversold bias)
     fig.add_trace(go.Scatter(x=df['Date'], y=[mean_val]*len(df), line=dict(width=0), showlegend=False, hoverinfo='skip'))
     fig.add_trace(go.Scatter(
         x=df['Date'], y=df['Relative_Breadth'].clip(upper=mean_val),
@@ -391,19 +555,16 @@ def plot_relative_breadth(df):
         line=dict(width=0), showlegend=False, hoverinfo='skip'
     ))
     
-    # Main signal line and markers
     fig.add_trace(go.Scatter(
         x=df['Date'], y=df['Relative_Breadth'], mode='lines+markers', name='Relative Breadth',
         line=dict(color='#FFC300', width=2),
         marker=dict(size=6, color=colors, line=dict(width=0))
     ))
     
-    # Mean and Threshold Lines
     fig.add_hline(y=0.5, line=dict(color='rgba(239,68,68,0.5)', width=1, dash='dash'))
     fig.add_hline(y=0.40, line=dict(color='rgba(16,185,129,0.5)', width=1, dash='dash'))
     fig.add_hline(y=mean_val, line=dict(color='rgba(255,255,255,0.2)', width=1))
     
-    # Dynamic ranges
     v_max = df['Relative_Breadth'].max()
     v_min = df['Relative_Breadth'].min()
     y_max = float(v_max + 0.05) if pd.notna(v_max) and v_max > 0.55 else 0.55
@@ -424,7 +585,6 @@ def plot_custom_breadth(df):
     mean_val = 0.46
     colors = ['#10b981' if v < 0.4 else '#ef4444' if v > 0.5 else '#888888' for v in df['Custom_Breadth']]
     
-    # Red fill above mean (Overbought bias)
     fig.add_trace(go.Scatter(x=df['Date'], y=[mean_val]*len(df), line=dict(width=0), showlegend=False, hoverinfo='skip'))
     fig.add_trace(go.Scatter(
         x=df['Date'], y=df['Custom_Breadth'].clip(lower=mean_val),
@@ -432,7 +592,6 @@ def plot_custom_breadth(df):
         line=dict(width=0), showlegend=False, hoverinfo='skip'
     ))
     
-    # Green fill below mean (Oversold bias)
     fig.add_trace(go.Scatter(x=df['Date'], y=[mean_val]*len(df), line=dict(width=0), showlegend=False, hoverinfo='skip'))
     fig.add_trace(go.Scatter(
         x=df['Date'], y=df['Custom_Breadth'].clip(upper=mean_val),
@@ -440,7 +599,6 @@ def plot_custom_breadth(df):
         line=dict(width=0), showlegend=False, hoverinfo='skip'
     ))
     
-    # Main signal line and markers
     fig.add_trace(go.Scatter(
         x=df['Date'], y=df['Custom_Breadth'], mode='lines+markers', name='Custom Breadth',
         line=dict(color='#FFC300', width=2),
@@ -469,10 +627,8 @@ def plot_ad_ratio(df):
     fig = go.Figure()
     
     mean_val = 1.0
-    # For ADR: High value > 1.2 is Bullish (Green). Low value < 0.8 is Bearish (Red).
     colors = ['#10b981' if v > 1.2 else '#ef4444' if v < 0.8 else '#888888' for v in df['AD_Ratio']]
     
-    # Green fill above mean (Bullish bias)
     fig.add_trace(go.Scatter(x=df['Date'], y=[mean_val]*len(df), line=dict(width=0), showlegend=False, hoverinfo='skip'))
     fig.add_trace(go.Scatter(
         x=df['Date'], y=df['AD_Ratio'].clip(lower=mean_val),
@@ -480,7 +636,6 @@ def plot_ad_ratio(df):
         line=dict(width=0), showlegend=False, hoverinfo='skip'
     ))
     
-    # Red fill below mean (Bearish bias)
     fig.add_trace(go.Scatter(x=df['Date'], y=[mean_val]*len(df), line=dict(width=0), showlegend=False, hoverinfo='skip'))
     fig.add_trace(go.Scatter(
         x=df['Date'], y=df['AD_Ratio'].clip(upper=mean_val),
@@ -540,6 +695,32 @@ def main():
         """, unsafe_allow_html=True)
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
         
+        # ── UNIVERSE SELECTION (From Nirnay) ──
+        st.markdown('<div class="sidebar-title">🎯 Universe Selection</div>', unsafe_allow_html=True)
+        spread_universe = st.selectbox(
+            "Analysis Universe",
+            ANALYSIS_UNIVERSE_OPTIONS,
+            index=0,
+            help="Choose between India Index Constituents or US Index Constituents."
+        )
+        
+        if spread_universe == "India Indexes":
+            spread_index = st.selectbox(
+                "Select Index",
+                INDIA_INDEX_LIST,
+                index=INDIA_INDEX_LIST.index("NIFTY 500"), # Default to NIFTY 500
+                help="Select a specific NIFTY index for constituent analysis."
+            )
+        else:
+            spread_index = st.selectbox(
+                "Select Index",
+                US_INDEX_LIST,
+                index=0,
+                help="Select the US index for constituent analysis."
+            )
+            
+        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+
         st.markdown('<div class="sidebar-title">📅 Date Range</div>', unsafe_allow_html=True)
         start_date = st.date_input("Start Date", datetime.date.today() - datetime.timedelta(days=100))
         end_date = st.date_input("End Date", datetime.date.today())
@@ -553,7 +734,7 @@ def main():
             <p style='font-size: 0.8rem; margin: 0; color: var(--text-muted); line-height: 1.5;'>
                 <strong>Version:</strong> {VERSION}<br>
                 <strong>Engine:</strong> Vector Core<br>
-                <strong>Universe:</strong> NIFTY 500
+                <strong>Universe:</strong> {spread_index}
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -565,8 +746,18 @@ def main():
 
         status_container = st.empty()
         with status_container.status("📡 Establishing Vector Engine Connection...", expanded=True) as terminal:
-            st.write("➤ Requesting Index Constituents...")
-            stock_list, msg = get_index_constituents()
+            st.write(f"➤ Requesting {spread_index} Constituents...")
+            
+            # Fetch universe specific stocks
+            if spread_universe == "India Indexes":
+                stock_list, msg = get_index_stock_list(spread_index)
+            else:
+                stock_list, msg = get_us_index_stock_list(spread_index)
+                
+            if not stock_list:
+                terminal.update(label="❌ Universe Error", state="error")
+                st.error(msg)
+                return
             st.write(f"&nbsp;&nbsp;&nbsp;↳ {msg}")
             
             st.write(f"➤ Connecting to Exchange Data ({len(stock_list)} assets)...")
@@ -588,7 +779,7 @@ def main():
             
             if breadth_df is None or breadth_df.empty:
                 terminal.update(label="❌ Algorithm Error", state="error")
-                st.error("Insufficient market data for the selected timeframe.")
+                st.error("Insufficient market data for the selected timeframe. Could be a weekend or holiday.")
                 return
                 
         # Vanish the terminal upon successful analysis completion
@@ -608,6 +799,8 @@ def main():
         elif adr < 1.0: sentiment, s_color = "BEARISH", "danger"
         else: sentiment, s_color = "NEUTRAL", "neutral"
         
+        st.markdown(f"### Breadth Analysis: {spread_index}")
+        
         c_date, c1, c2, c3, c4 = st.columns(5)
         with c_date: st.markdown(f'<div class="metric-card neutral"><h4>Snapshot</h4><h2 style="font-size: 1.5rem;">{last_date}</h2><div class="sub-metric">Trading Day</div></div>', unsafe_allow_html=True)
         with c1: st.markdown(f'<div class="metric-card {s_color}"><h4>A/D Ratio</h4><h2 style="font-size: 1.6rem;">{adr:.2f}</h2><div class="sub-metric">{sentiment}</div></div>', unsafe_allow_html=True)
@@ -620,7 +813,7 @@ def main():
 
         st.markdown("<br>", unsafe_allow_html=True)
         
-        tab1, tab2 = st.tabs(["**📈 Time Series Analytics**", "**📋 Raw Data**"])
+        tab1, tab2 = st.tabs(["**📈 Time Series Analytics**", "**📋 Raw Data Matrix**"])
         
         with tab1:
             st.markdown("##### Relative Breadth Oscillator")
@@ -643,7 +836,7 @@ def main():
             st.plotly_chart(plot_ad_line(breadth_df), width="stretch", config={'displayModeBar': False})
 
         with tab2:
-            st.markdown("##### Historical Breadth Matrix")
+            st.markdown(f"##### Historical Breadth Matrix ({spread_index})")
             display_df = breadth_df.copy()
             display_df['Date'] = display_df['Date'].dt.strftime('%Y-%m-%d')
             display_df['AD_Ratio'] = display_df['AD_Ratio'].round(3)
@@ -655,10 +848,10 @@ def main():
             st.dataframe(display_df, width="stretch", hide_index=True, height=400)
             
             csv_data = breadth_df.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Export Matrix (CSV)", csv_data, f"market_breadth_{start_date}_{end_date}.csv", "text/csv")
+            st.download_button("📥 Export Matrix (CSV)", csv_data, f"{spread_index.replace(' ', '_')}_breadth_{start_date}_{end_date}.csv", "text/csv")
 
     else:
-        # Pre-Run Landing Page matching Nirnay UI
+        # Pre-Run Landing Page
         st.markdown("""
         <div class="premium-header">
             <h1>MARKET BREADTH : Advance-Decline Intelligence</h1>
@@ -703,25 +896,25 @@ def main():
             """, unsafe_allow_html=True)
             
         with col3:
-            st.markdown("""
+            st.markdown(f"""
             <div class='metric-card info' style='min-height: 280px;'>
-                <h3 style='color: var(--info-cyan); margin-bottom: 1rem;'>🎯 The NIFTY 500</h3>
+                <h3 style='color: var(--info-cyan); margin-bottom: 1rem;'>🎯 Universe Selection</h3>
                 <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
-                    Applying breadth analysis to the Nifty 500 gives a true representation of the Indian Equity market.
+                    Apply breadth analysis to any major Indian or US Index to gauge true market representation and internals.
                 </p>
                 <br>
                 <p style='color: var(--text-secondary); font-size: 0.85rem;'>
-                    <strong>Coverage:</strong> ~92% of free-float market cap listed on the NSE.
+                    <strong>Current Target:</strong> {spread_index}
                 </p>
             </div>
             """, unsafe_allow_html=True)
             
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("""
+        st.markdown(f"""
         <div class='info-box'>
             <h4>🚀 Getting Started</h4>
             <p style='color: var(--text-muted); line-height: 1.7;'>
-                Open the sidebar on the left, configure your <strong>Date Range</strong>, and click <strong>◈ RUN ANALYSIS</strong>. 
+                Open the sidebar on the left, choose your target <strong>Universe</strong> and <strong>Index</strong> (currently <i>{spread_index}</i>), configure the <strong>Date Range</strong>, and click <strong>◈ RUN ANALYSIS</strong>. 
                 The system will automatically compute the Time Series Matrix, Cumulative ADL, and bi-color gradient Breadth Oscillators.
             </p>
         </div>
