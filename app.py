@@ -4,7 +4,6 @@ MARKET BREADTH - Advance/Decline Intelligence | A Hemrek Capital Product
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Unified ETF & Index breadth tracking with institutional-grade time series 
 analysis, cumulative A/D lines, and real-time market snapshots.
-Nirnay.py data fetching mechanism fully integrated (4 universes + live append)
 """
 
 import streamlit as st
@@ -32,7 +31,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-VERSION = "v1.7.0 (Nirnay Data Engine Sync)"
+VERSION = "v1.7.1 (2026 Streamlit width fix + clearer status)"
 PRODUCT_NAME = "Market Breadth"
 COMPANY = "Hemrek Capital"
 
@@ -174,7 +173,7 @@ st.markdown("""
     .signal-card.buy::before { background: var(--success-green); }
     .signal-card.sell::before { background: var(--danger-red); }
     
-    .info-box { background: var(--secondary-background-color); border: 1px solid var(--border-color); border-left: 4px solid var(--primary-color); padding: 1.25rem; border-radius: 12px; margin: 0.5rem 0; box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08); }
+    .info-box { background: var(--secondary-background-color); border: 1px solid var(--border-color); border-left: 0px solid var(--primary-color); padding: 1.25rem; border-radius: 12px; margin: 0.5rem 0; box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08); }
     .info-box h4 { color: var(--primary-color); margin: 0 0 0.5rem 0; font-size: 1rem; font-weight: 700; }
     .info-box p { color: var(--text-muted); margin: 0; font-size: 0.9rem; line-height: 1.6; }
     
@@ -251,7 +250,9 @@ DOW_JONES_TICKERS = [
 FALLBACK_TICKERS = [
     "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "ICICIBANK.NS", "BHARTIARTL.NS", "INFY.NS", 
     "ITC.NS", "SBIN.NS", "L&T.NS", "BAJFINANCE.NS", "KOTAKBANK.NS", "HINDUNILVR.NS", 
-    "AXISBANK.NS", "MARUTI.NS", "SUNPHARMA.NS", "ULTRACEMCO.NS", "TATAMOTORS.NS"
+    "AXISBANK.NS", "MARUTI.NS", "SUNPHARMA.NS", "ULTRACEMCO.NS", "TATAMOTORS.NS",
+    "ADANIENT.NS", "ADANIPORTS.NS", "ASIANPAINT.NS", "BAJAJ-AUTO.NS", "BAJAJFINSV.NS",
+    "BPCL.NS", "NTPC.NS", "ONGC.NS", "POWERGRID.NS", "TITAN.NS"
 ]
 
 COMMODITY_TICKERS = {
@@ -280,9 +281,7 @@ CURRENCY_TICKERS = {
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _fetch_india_index_from_wikipedia(index):
-    """Fallback: Fetch Indian index constituents from Wikipedia"""
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-
     def _parse_wiki_table(url, min_count=10):
         try:
             response = requests.get(url, headers=headers, timeout=15)
@@ -305,7 +304,7 @@ def _fetch_india_index_from_wikipedia(index):
             if n50 and nn50:
                 combined = list(dict.fromkeys(n50 + nn50))
                 symbols_ns = [s + ".NS" for s in combined]
-                return symbols_ns, f"⚠ Fetched {len(symbols_ns)} {index} constituents from Wikipedia"
+                return symbols_ns, f"⚠ Fetched {len(symbols_ns)} {index} from Wikipedia"
             return None, "Wikipedia fallback failed for NIFTY 100"
 
         if index == "NIFTY 200":
@@ -313,7 +312,7 @@ def _fetch_india_index_from_wikipedia(index):
             if symbols:
                 symbols_200 = symbols[:200]
                 symbols_ns = [s + ".NS" for s in symbols_200]
-                return symbols_ns, f"⚠ Fetched {len(symbols_ns)} {index} constituents from Wikipedia"
+                return symbols_ns, f"⚠ Fetched {len(symbols_ns)} {index} from Wikipedia"
             return None, "Wikipedia fallback failed for NIFTY 200"
 
         wiki_url = INDIA_INDEX_WIKI_MAP.get(index)
@@ -322,9 +321,8 @@ def _fetch_india_index_from_wikipedia(index):
             symbols = _parse_wiki_table(wiki_url, min_count=min_expected)
             if symbols:
                 symbols_ns = [s + ".NS" for s in symbols]
-                return symbols_ns, f"⚠ Fetched {len(symbols_ns)} {index} constituents from Wikipedia"
-            return None, f"Wikipedia fallback: could not parse {index} table"
-
+                return symbols_ns, f"⚠ Fetched {len(symbols_ns)} {index} from Wikipedia"
+            return None, f"Wikipedia fallback: could not parse {index}"
         return None, None
     except Exception as e:
         return None, f"Wikipedia fallback error: {e}"
@@ -332,120 +330,93 @@ def _fetch_india_index_from_wikipedia(index):
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_index_stock_list(index):
-    """Fetch Indian index constituents from NSE with Wikipedia fallback"""
     if index in US_INDEX_LIST:
         return get_us_index_stock_list(index)
 
     url = INDEX_URL_MAP.get(index)
     if not url:
-        return FALLBACK_TICKERS, f"Error: No URL for {index}. Using fallback tickers."
+        return FALLBACK_TICKERS, f"No URL for {index} → using fallback list ({len(FALLBACK_TICKERS)} symbols)"
 
     try:
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         response = requests.get(url, headers=headers, verify=False, timeout=10)
         response.raise_for_status()
-        
         csv_file = io.StringIO(response.text)
         stock_df = pd.read_csv(csv_file)
-        
         if 'Symbol' in stock_df.columns:
             symbols = stock_df['Symbol'].tolist()
-            symbols_ns = [str(s) + ".NS" for s in symbols if s and str(s).strip()]
-            return symbols_ns, f"Success: Fetched {len(symbols_ns)} constituents from NSE."
-            
-    except Exception:
+            symbols_ns = [str(s).strip() + ".NS" for s in symbols if str(s).strip()]
+            return symbols_ns, f"Fetched {len(symbols_ns)} constituents from NSE"
+    except Exception as e:
         pass
 
     wiki_result, wiki_msg = _fetch_india_index_from_wikipedia(index)
     if wiki_result:
         return wiki_result, wiki_msg
 
-    return FALLBACK_TICKERS, f"Error: Exchange and Wiki endpoints failed. Using top {len(FALLBACK_TICKERS)} liquid fallback constituents."
+    return FALLBACK_TICKERS, f"Both NSE & Wikipedia failed → using fallback list ({len(FALLBACK_TICKERS)} symbols)"
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_us_index_stock_list(index):
-    """Fetch US index constituents from Wikipedia with hardcoded fallback for Dow Jones"""
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        headers = {'User-Agent': 'Mozilla/5.0'}
         
         if index == "S&P 500":
             url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-            response = requests.get(url, headers=headers, timeout=15)
-            response.raise_for_status()
-            tables = pd.read_html(io.StringIO(response.text))
-            if tables:
-                df = tables[0]
-                if 'Symbol' in df.columns:
-                    symbols = df['Symbol'].str.strip().str.replace('.', '-', regex=False).tolist()
-                    symbols = [s for s in symbols if s and str(s).strip()]
-                    return symbols, f"Success: Fetched {len(symbols)} S&P 500 constituents"
-            return None, "Could not parse S&P 500 table"
-            
+            tables = pd.read_html(requests.get(url, headers=headers, timeout=15).text)
+            df = tables[0]
+            symbols = df['Symbol'].str.strip().str.replace('.', '-', regex=False).tolist()
+            return symbols, f"Fetched {len(symbols)} S&P 500 constituents"
+        
         elif index == "DOW JONES":
-            try:
-                url = "https://en.wikipedia.org/wiki/Dow_Jones_Industrial_Average"
-                response = requests.get(url, headers=headers, timeout=15)
-                response.raise_for_status()
-                tables = pd.read_html(io.StringIO(response.text))
-                for tbl in tables:
-                    for col in ['Symbol', 'Ticker', 'Ticker symbol']:
-                        if col in tbl.columns:
-                            symbols = tbl[col].str.strip().tolist()
-                            symbols = [s for s in symbols if s and str(s).strip() and len(s) <= 5]
-                            if 20 <= len(symbols) <= 35:
-                                return symbols, f"Success: Fetched {len(symbols)} Dow Jones constituents"
-            except Exception:
-                pass
-            return DOW_JONES_TICKERS.copy(), f"Success: Loaded {len(DOW_JONES_TICKERS)} Dow Jones constituents"
-            
+            url = "https://en.wikipedia.org/wiki/Dow_Jones_Industrial_Average"
+            tables = pd.read_html(requests.get(url, headers=headers, timeout=15).text)
+            for tbl in tables:
+                for col in ['Symbol', 'Ticker', 'Ticker symbol']:
+                    if col in tbl.columns:
+                        s = tbl[col].str.strip().tolist()
+                        if 20 <= len(s) <= 35:
+                            return s, f"Fetched {len(s)} Dow Jones constituents"
+            return DOW_JONES_TICKERS, f"Loaded hardcoded {len(DOW_JONES_TICKERS)} Dow Jones tickers"
+        
         elif index == "NASDAQ 100":
             url = "https://en.wikipedia.org/wiki/Nasdaq-100"
-            response = requests.get(url, headers=headers, timeout=15)
-            response.raise_for_status()
-            tables = pd.read_html(io.StringIO(response.text))
+            tables = pd.read_html(requests.get(url, headers=headers, timeout=15).text)
             for tbl in tables:
-                if 'Ticker' in tbl.columns:
-                    symbols = tbl['Ticker'].str.strip().str.replace('.', '-', regex=False).tolist()
-                    symbols = [s for s in symbols if s and str(s).strip()]
-                    if len(symbols) >= 90:
-                        return symbols, f"Success: Fetched {len(symbols)} NASDAQ 100 constituents"
-                elif 'Symbol' in tbl.columns:
-                    symbols = tbl['Symbol'].str.strip().str.replace('.', '-', regex=False).tolist()
-                    symbols = [s for s in symbols if s and str(s).strip()]
-                    if len(symbols) >= 90:
-                        return symbols, f"Success: Fetched {len(symbols)} NASDAQ 100 constituents"
-            return None, "Could not parse NASDAQ 100 table"
-        
-        return None, f"Unknown US index: {index}"
-        
-    except Exception as e:
-        return None, f"Error fetching {index}: {e}"
+                for col in ['Ticker', 'Symbol']:
+                    if col in tbl.columns:
+                        s = tbl[col].str.strip().str.replace('.', '-', regex=False).tolist()
+                        if len(s) >= 90:
+                            return s, f"Fetched {len(s)} NASDAQ 100 constituents"
+    except Exception:
+        pass
+    
+    return None, f"Failed to fetch {index} constituents"
 
 
 def get_commodity_list():
     tickers = list(COMMODITY_TICKERS.keys())
-    return tickers, f"Success: Loaded {len(tickers)} commodity futures"
+    return tickers, f"Loaded {len(tickers)} commodity futures"
 
 
 def get_currency_list():
     tickers = list(CURRENCY_TICKERS.keys())
-    return tickers, f"Success: Loaded {len(tickers)} currency pairs"
+    return tickers, f"Loaded {len(tickers)} currency pairs"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MAIN DATA FETCH FUNCTION ── ported from nirnay.py
+# MAIN DATA ENGINE ── ported from nirnay.py
 # ══════════════════════════════════════════════════════════════════════════════
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_market_data(stock_list, start_date, end_date):
-    """Nirnay-style fetch: group_by ticker + live today append + extra buffer"""
     if end_date is None:
         end_date = datetime.date.today()
     
     download_end = end_date + datetime.timedelta(days=5)
-    start_date_calc = end_date - datetime.timedelta(days=300 + 365)  # extra buffer like nirnay
-    
+    start_date_calc = end_date - datetime.timedelta(days=300 + 365)
+
     try:
         all_data = yf.download(
             stock_list,
@@ -457,7 +428,7 @@ def fetch_market_data(stock_list, start_date, end_date):
         )
         
         if all_data.empty:
-            return None, "No data returned from Exchange."
+            return None, "No data returned from yfinance"
         
         data_dict = {}
         for ticker in stock_list:
@@ -471,7 +442,7 @@ def fetch_market_data(stock_list, start_date, end_date):
             except Exception:
                 pass
         
-        # ── LIVE / TODAY APPEND LOGIC ───────────────────────────────────────
+        # Live data append if today is missing
         if end_date == datetime.date.today() and data_dict:
             sample = next(iter(data_dict.values()))
             sample.index = pd.to_datetime(sample.index).normalize().tz_localize(None)
@@ -502,44 +473,42 @@ def fetch_market_data(stock_list, start_date, end_date):
                 except Exception:
                     pass
         
-        # Build final close DataFrame
         if not data_dict:
-            return None, "No valid data for any ticker."
+            return None, "No valid ticker data after processing"
         
         close_df = pd.DataFrame({t: data_dict[t]['Close'] for t in data_dict})
         close_df = close_df.sort_index().dropna(axis=1, how='all')
         
-        return close_df, f"Success: Market matrix built for {len(close_df.columns)} assets (live append applied if needed)."
+        return close_df, f"Built close matrix for {len(close_df.columns)} assets (live append applied if needed)"
         
     except Exception as e:
-        return None, f"Fatal Download Error: {e}"
+        return None, f"Fatal download error: {str(e)}"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# BREADTH CALCULATION ENGINE
+# BREADTH CALCULATION (unchanged)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def compute_timeseries(close_df, start_ts, end_ts):
     close_df.index = pd.to_datetime(close_df.index).normalize().tz_localize(None)
     close_df = close_df.ffill(limit=2)
     
-    pct_change_df = close_df.pct_change(fill_method=None)
-    pct_change_df = pct_change_df.iloc[1:] 
+    pct_change_df = close_df.pct_change(fill_method=None).iloc[1:]
     
     if pct_change_df.empty:
         return None, pd.DataFrame()
         
-    advances = (pct_change_df > 0).sum(axis=1)
-    declines = (pct_change_df < 0).sum(axis=1)
-    unchanged = (pct_change_df == 0).sum(axis=1)
-    total_traded = advances + declines + unchanged
+    advances   = (pct_change_df > 0).sum(axis=1)
+    declines   = (pct_change_df < 0).sum(axis=1)
+    unchanged  = (pct_change_df == 0).sum(axis=1)
+    total      = advances + declines + unchanged
     
     breadth_df = pd.DataFrame({
         'Date': pct_change_df.index,
         'Advances': advances.values,
         'Declines': declines.values,
         'Unchanged': unchanged.values,
-        'Total': total_traded.values
+        'Total': total.values
     }).reset_index(drop=True)
     
     breadth_df = breadth_df[breadth_df['Total'] >= 10].copy()
@@ -548,103 +517,92 @@ def compute_timeseries(close_df, start_ts, end_ts):
         return None, pd.DataFrame()
         
     breadth_df['Net_Advances'] = breadth_df['Advances'] - breadth_df['Declines']
-    
     breadth_df['AD_Ratio'] = np.where(
         breadth_df['Declines'] > 0, 
         breadth_df['Advances'] / breadth_df['Declines'], 
         breadth_df['Advances'].astype(float)
     )
-    
     breadth_df['AD_Line'] = breadth_df['Net_Advances'].cumsum()
-    breadth_df['ADR_MA10'] = breadth_df['AD_Ratio'].rolling(window=10, min_periods=1).mean()
+    breadth_df['ADR_MA10'] = breadth_df['AD_Ratio'].rolling(10, min_periods=1).mean()
     
     # Custom Breadth
     x_vals = breadth_df['AD_Ratio'] / (breadth_df['AD_Ratio'] + 1)
-    x_ma10 = x_vals.rolling(window=10, min_periods=10).mean()
+    x_ma10 = x_vals.rolling(10, min_periods=10).mean()
     
     breadth_vals = np.full(len(breadth_df), np.nan)
     first_valid = x_ma10.first_valid_index()
     
     if first_valid is not None:
         breadth_vals[first_valid] = x_ma10.loc[first_valid]
-        C = 0.1 
+        C = 0.1
         for i in range(first_valid + 1, len(breadth_df)):
-            prev_y = breadth_vals[i-1]
-            curr_x = x_vals.iloc[i]
-            breadth_vals[i] = prev_y + C * (curr_x - prev_y)
+            prev = breadth_vals[i-1]
+            curr = x_vals.iloc[i]
+            breadth_vals[i] = prev + C * (curr - prev)
             
     breadth_df['Custom_Breadth'] = breadth_vals
     
     # Relative Breadth
     cb = breadth_df['Custom_Breadth']
-    ma2 = cb.rolling(window=2, min_periods=1).mean()
-    ma3 = cb.rolling(window=3, min_periods=1).mean()
-    ma5 = cb.rolling(window=5, min_periods=1).mean()
-    ma8 = cb.rolling(window=8, min_periods=1).mean()
-    ma13 = cb.rolling(window=13, min_periods=1).mean()
-    ma21 = cb.rolling(window=21, min_periods=1).mean()
+    ma2  = cb.rolling(2,  min_periods=1).mean()
+    ma3  = cb.rolling(3,  min_periods=1).mean()
+    ma5  = cb.rolling(5,  min_periods=1).mean()
+    ma8  = cb.rolling(8,  min_periods=1).mean()
+    ma13 = cb.rolling(13, min_periods=1).mean()
+    ma21 = cb.rolling(21, min_periods=1).mean()
     
     Z = (ma2 + ma3 + ma5 + ma8 + ma13 + ma21) / 6.0
     breadth_df['Relative_Breadth'] = (Z + cb) / 2.0
     
-    # Filter to user-selected timeframe
+    # Filter to requested window
     view_mask = (breadth_df['Date'] >= start_ts) & (breadth_df['Date'] <= end_ts)
-    final_breadth_df = breadth_df.loc[view_mask].copy().reset_index(drop=True)
+    final_df = breadth_df.loc[view_mask].copy().reset_index(drop=True)
     
-    if final_breadth_df.empty:
+    if final_df.empty:
         return None, pd.DataFrame()
         
-    final_breadth_df['AD_Line'] = final_breadth_df['AD_Line'] - final_breadth_df['AD_Line'].iloc[0]
+    final_df['AD_Line'] = final_df['AD_Line'] - final_df['AD_Line'].iloc[0]
     
-    last_date = final_breadth_df['Date'].iloc[-1]
+    last_date = final_df['Date'].iloc[-1]
     
     if last_date in pct_change_df.index:
         last_changes = pct_change_df.loc[last_date]
-        last_prices = close_df.loc[last_date]
+        last_prices  = close_df.loc[last_date]
         
-        movers_df = pd.DataFrame({
-            'Symbol': [str(s).replace('.NS', '').replace('=X', '') for s in last_changes.index],
+        movers = pd.DataFrame({
+            'Symbol': [str(s).replace('.NS','').replace('=X','') for s in last_changes.index],
             'Price': last_prices.values,
             'Change_%': last_changes.values * 100
         })
-        
-        conditions = [movers_df['Change_%'] > 0, movers_df['Change_%'] < 0]
-        movers_df['Status'] = np.select(conditions, ['Advance', 'Decline'], default='Unchanged')
+        movers['Status'] = np.select(
+            [movers['Change_%'] > 0, movers['Change_%'] < 0],
+            ['Advance', 'Decline'], default='Unchanged'
+        )
     else:
-        movers_df = pd.DataFrame()
+        movers = pd.DataFrame()
         
-    return final_breadth_df, movers_df
+    return final_df, movers
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# VISUALIZATION COMPONENTS
+# PLOTTING FUNCTIONS (updated with width="stretch")
 # ══════════════════════════════════════════════════════════════════════════════
 
 def plot_relative_breadth(df):
     fig = go.Figure()
-    
     mean_val = 0.46
     colors = ['#10b981' if v < 0.4 else '#ef4444' if v > 0.5 else '#888888' for v in df['Relative_Breadth']]
     
     fig.add_trace(go.Scatter(x=df['Date'], y=[mean_val]*len(df), line=dict(width=0), showlegend=False, hoverinfo='skip'))
-    fig.add_trace(go.Scatter(
-        x=df['Date'], y=df['Relative_Breadth'].clip(lower=mean_val),
-        fill='tonexty', fillcolor='rgba(239,68,68,0.15)',
-        line=dict(width=0), showlegend=False, hoverinfo='skip'
-    ))
-    
+    fig.add_trace(go.Scatter(x=df['Date'], y=df['Relative_Breadth'].clip(lower=mean_val),
+                             fill='tonexty', fillcolor='rgba(239,68,68,0.15)', line=dict(width=0), showlegend=False))
     fig.add_trace(go.Scatter(x=df['Date'], y=[mean_val]*len(df), line=dict(width=0), showlegend=False, hoverinfo='skip'))
-    fig.add_trace(go.Scatter(
-        x=df['Date'], y=df['Relative_Breadth'].clip(upper=mean_val),
-        fill='tonexty', fillcolor='rgba(16,185,129,0.15)',
-        line=dict(width=0), showlegend=False, hoverinfo='skip'
-    ))
+    fig.add_trace(go.Scatter(x=df['Date'], y=df['Relative_Breadth'].clip(upper=mean_val),
+                             fill='tonexty', fillcolor='rgba(16,185,129,0.15)', line=dict(width=0), showlegend=False))
     
-    fig.add_trace(go.Scatter(
-        x=df['Date'], y=df['Relative_Breadth'], mode='lines+markers', name='Relative Breadth',
-        line=dict(color='#FFC300', width=2),
-        marker=dict(size=6, color=colors, line=dict(width=0))
-    ))
+    fig.add_trace(go.Scatter(x=df['Date'], y=df['Relative_Breadth'], mode='lines+markers',
+                             name='Relative Breadth', line=dict(color='#FFC300', width=2),
+                             marker=dict(size=6, color=colors, line=dict(width=0))))
     
     fig.add_hline(y=0.5, line=dict(color='rgba(239,68,68,0.5)', width=1, dash='dash'))
     fig.add_hline(y=0.40, line=dict(color='rgba(16,185,129,0.5)', width=1, dash='dash'))
@@ -657,7 +615,7 @@ def plot_relative_breadth(df):
     
     fig.update_layout(
         template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#1A1A1A', height=350,
-        margin=dict(l=10, r=10, t=10, b=10),
+        margin=dict(l=10,r=10,t=10,b=10),
         xaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)'),
         yaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)', title='Relative Breadth', range=[y_min, y_max]),
         font=dict(family='Inter', color='#EAEAEA'), hovermode='x unified'
@@ -667,29 +625,19 @@ def plot_relative_breadth(df):
 
 def plot_custom_breadth(df):
     fig = go.Figure()
-    
     mean_val = 0.46
     colors = ['#10b981' if v < 0.4 else '#ef4444' if v > 0.5 else '#888888' for v in df['Custom_Breadth']]
     
     fig.add_trace(go.Scatter(x=df['Date'], y=[mean_val]*len(df), line=dict(width=0), showlegend=False, hoverinfo='skip'))
-    fig.add_trace(go.Scatter(
-        x=df['Date'], y=df['Custom_Breadth'].clip(lower=mean_val),
-        fill='tonexty', fillcolor='rgba(239,68,68,0.15)',
-        line=dict(width=0), showlegend=False, hoverinfo='skip'
-    ))
-    
+    fig.add_trace(go.Scatter(x=df['Date'], y=df['Custom_Breadth'].clip(lower=mean_val),
+                             fill='tonexty', fillcolor='rgba(239,68,68,0.15)', line=dict(width=0), showlegend=False))
     fig.add_trace(go.Scatter(x=df['Date'], y=[mean_val]*len(df), line=dict(width=0), showlegend=False, hoverinfo='skip'))
-    fig.add_trace(go.Scatter(
-        x=df['Date'], y=df['Custom_Breadth'].clip(upper=mean_val),
-        fill='tonexty', fillcolor='rgba(16,185,129,0.15)',
-        line=dict(width=0), showlegend=False, hoverinfo='skip'
-    ))
+    fig.add_trace(go.Scatter(x=df['Date'], y=df['Custom_Breadth'].clip(upper=mean_val),
+                             fill='tonexty', fillcolor='rgba(16,185,129,0.15)', line=dict(width=0), showlegend=False))
     
-    fig.add_trace(go.Scatter(
-        x=df['Date'], y=df['Custom_Breadth'], mode='lines+markers', name='Custom Breadth',
-        line=dict(color='#FFC300', width=2),
-        marker=dict(size=6, color=colors, line=dict(width=0))
-    ))
+    fig.add_trace(go.Scatter(x=df['Date'], y=df['Custom_Breadth'], mode='lines+markers',
+                             name='Custom Breadth', line=dict(color='#FFC300', width=2),
+                             marker=dict(size=6, color=colors, line=dict(width=0))))
     
     fig.add_hline(y=0.5, line=dict(color='rgba(239,68,68,0.5)', width=1, dash='dash'))
     fig.add_hline(y=0.40, line=dict(color='rgba(16,185,129,0.5)', width=1, dash='dash'))
@@ -702,7 +650,7 @@ def plot_custom_breadth(df):
     
     fig.update_layout(
         template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#1A1A1A', height=350,
-        margin=dict(l=10, r=10, t=10, b=10),
+        margin=dict(l=10,r=10,t=10,b=10),
         xaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)'),
         yaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)', title='Custom Breadth', range=[y_min, y_max]),
         font=dict(family='Inter', color='#EAEAEA'), hovermode='x unified'
@@ -712,29 +660,19 @@ def plot_custom_breadth(df):
 
 def plot_ad_ratio(df):
     fig = go.Figure()
-    
     mean_val = 1.0
     colors = ['#10b981' if v > 1.2 else '#ef4444' if v < 0.8 else '#888888' for v in df['AD_Ratio']]
     
     fig.add_trace(go.Scatter(x=df['Date'], y=[mean_val]*len(df), line=dict(width=0), showlegend=False, hoverinfo='skip'))
-    fig.add_trace(go.Scatter(
-        x=df['Date'], y=df['AD_Ratio'].clip(lower=mean_val),
-        fill='tonexty', fillcolor='rgba(16,185,129,0.15)',
-        line=dict(width=0), showlegend=False, hoverinfo='skip'
-    ))
-    
+    fig.add_trace(go.Scatter(x=df['Date'], y=df['AD_Ratio'].clip(lower=mean_val),
+                             fill='tonexty', fillcolor='rgba(16,185,129,0.15)', line=dict(width=0), showlegend=False))
     fig.add_trace(go.Scatter(x=df['Date'], y=[mean_val]*len(df), line=dict(width=0), showlegend=False, hoverinfo='skip'))
-    fig.add_trace(go.Scatter(
-        x=df['Date'], y=df['AD_Ratio'].clip(upper=mean_val),
-        fill='tonexty', fillcolor='rgba(239,68,68,0.15)',
-        line=dict(width=0), showlegend=False, hoverinfo='skip'
-    ))
+    fig.add_trace(go.Scatter(x=df['Date'], y=df['AD_Ratio'].clip(upper=mean_val),
+                             fill='tonexty', fillcolor='rgba(239,68,68,0.15)', line=dict(width=0), showlegend=False))
     
-    fig.add_trace(go.Scatter(
-        x=df['Date'], y=df['AD_Ratio'], mode='lines+markers', name='Daily ADR',
-        line=dict(color='#FFC300', width=2),
-        marker=dict(size=6, color=colors, line=dict(width=0))
-    ))
+    fig.add_trace(go.Scatter(x=df['Date'], y=df['AD_Ratio'], mode='lines+markers',
+                             name='Daily ADR', line=dict(color='#FFC300', width=2),
+                             marker=dict(size=6, color=colors, line=dict(width=0))))
     
     fig.add_hline(y=mean_val, line=dict(color='rgba(255,255,255,0.2)', width=1))
     
@@ -745,7 +683,7 @@ def plot_ad_ratio(df):
     
     fig.update_layout(
         template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#1A1A1A', height=350,
-        margin=dict(l=10, r=10, t=10, b=10),
+        margin=dict(l=10,r=10,t=10,b=10),
         xaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)'),
         yaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)', title='A/D Ratio', range=[y_min, y_max]),
         showlegend=False,
@@ -762,7 +700,7 @@ def plot_ad_line(df):
     ))
     fig.update_layout(
         template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#1A1A1A', height=350,
-        margin=dict(l=10, r=10, t=10, b=10),
+        margin=dict(l=10,r=10,t=10,b=10),
         xaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)'),
         yaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)', title='Cumulative Net Advances'),
         font=dict(family='Inter', color='#EAEAEA'), hovermode='x unified'
@@ -776,7 +714,7 @@ def plot_ad_line(df):
 
 def main():
     with st.sidebar:
-        st.markdown("""
+        st.markdown(f"""
         <div style="text-align: center; padding: 1rem 0; margin-bottom: 1rem;">
             <div style="font-size: 1.75rem; font-weight: 800; color: #FFC300;">MARKET BREADTH</div>
             <div style="color: #888888; font-size: 0.75rem; margin-top: 0.25rem;">Advance-Decline Analytics</div>
@@ -825,7 +763,7 @@ def main():
         <div class='info-box'>
             <p style='font-size: 0.8rem; margin: 0; color: var(--text-muted); line-height: 1.5;'>
                 <strong>Version:</strong> {VERSION}<br>
-                <strong>Engine:</strong> Vector + Nirnay Data Sync<br>
+                <strong>Engine:</strong> Nirnay Data Sync + 2026 fix<br>
                 <strong>Universe:</strong> {spread_universe} – {spread_index}
             </p>
         </div>
@@ -838,7 +776,7 @@ def main():
 
         status_container = st.empty()
         with status_container.status("📡 Establishing Vector Engine Connection...", expanded=True) as terminal:
-            st.write(f"➤ Requesting {spread_universe} universe ({spread_index})...")
+            terminal.write(f"➤ Requesting {spread_universe} universe ({spread_index})...")
             
             if spread_universe == "India Indexes":
                 stock_list, msg = get_index_stock_list(spread_index)
@@ -849,25 +787,31 @@ def main():
             else:
                 stock_list, msg = get_currency_list()
                 
-            st.write(f"&nbsp;&nbsp;&nbsp;↳ {msg}")
+            terminal.write(f"&nbsp;&nbsp;&nbsp;↳ {msg} ({len(stock_list)} tickers loaded)")
             
-            if not stock_list:
-                terminal.update(label="❌ Universe Error", state="error")
-                st.error("Could not obtain ticker list.")
+            if "fallback" in msg.lower():
+                terminal.warning("Limited fallback tickers used — breadth analysis may be incomplete. Try NIFTY 500 for full coverage.")
+            
+            if len(stock_list) == 0:
+                terminal.update(label="❌ No tickers loaded", state="error")
+                st.error("Could not obtain any tickers for analysis.")
                 return
             
-            st.write(f"➤ Connecting to Exchange Data ({len(stock_list)} assets)...")
-            fetch_start = end_date - datetime.timedelta(days=300) 
-            
+            terminal.write(f"➤ Downloading price data ({len(stock_list)} symbols)...")
+            fetch_start = end_date - datetime.timedelta(days=300)
             close_df, dl_msg = fetch_market_data(stock_list, fetch_start, end_date)
             
             if close_df is None:
                 terminal.update(label="❌ Connection Failed", state="error")
                 st.error(dl_msg)
                 return
-            st.write(f"&nbsp;&nbsp;&nbsp;↳ {dl_msg}")
+                
+            terminal.write(f"&nbsp;&nbsp;&nbsp;↳ {dl_msg} → {len(close_df.columns)} valid series")
             
-            st.write("➤ Processing Vectorized Algorithms...")
+            if len(close_df.columns) < 20:
+                terminal.warning(f"Only {len(close_df.columns)} assets returned usable data — results may be noisy.")
+            
+            terminal.write("➤ Computing breadth indicators...")
             
             start_ts = pd.Timestamp(start_date)
             end_ts = pd.Timestamp(end_date)
@@ -880,7 +824,10 @@ def main():
                 
         status_container.empty()
 
-        # ── DISPLAY RESULTS ──────────────────────────────────────────────────────
+        # ----------------------------------------------------------------------
+        # UNIFIED DISPLAY
+        # ----------------------------------------------------------------------
+        
         last_date = breadth_df['Date'].iloc[-1].strftime("%d %b %Y")
         last_row = breadth_df.iloc[-1]
         
@@ -891,22 +838,17 @@ def main():
         elif adr < 1.0: sentiment, s_color = "BEARISH", "danger"
         else: sentiment, s_color = "NEUTRAL", "neutral"
         
-        st.markdown(f"### Breadth Analysis: {spread_index} ({spread_universe})")
+        st.markdown(f"### Breadth Analysis: {spread_index}")
         
         c_date, c1, c2, c3, c4 = st.columns(5)
-        with c_date: 
-            st.markdown(f'<div class="metric-card neutral"><h4>Snapshot</h4><h2 style="font-size: 1.5rem;">{last_date}</h2><div class="sub-metric">Trading Day</div></div>', unsafe_allow_html=True)
-        with c1: 
-            st.markdown(f'<div class="metric-card {s_color}"><h4>A/D Ratio</h4><h2 style="font-size: 1.6rem;">{adr:.2f}</h2><div class="sub-metric">{sentiment}</div></div>', unsafe_allow_html=True)
-        with c2: 
-            st.markdown(f'<div class="metric-card success"><h4>Advances</h4><h2 style="font-size: 1.6rem;">{last_row["Advances"]}</h2><div class="sub-metric">Stocks Gaining</div></div>', unsafe_allow_html=True)
-        with c3: 
-            st.markdown(f'<div class="metric-card danger"><h4>Declines</h4><h2 style="font-size: 1.6rem;">{last_row["Declines"]}</h2><div class="sub-metric">Stocks Falling</div></div>', unsafe_allow_html=True)
+        with c_date: st.markdown(f'<div class="metric-card neutral"><h4>Snapshot</h4><h2 style="font-size: 1.5rem;">{last_date}</h2><div class="sub-metric">Trading Day</div></div>', unsafe_allow_html=True)
+        with c1: st.markdown(f'<div class="metric-card {s_color}"><h4>A/D Ratio</h4><h2 style="font-size: 1.6rem;">{adr:.2f}</h2><div class="sub-metric">{sentiment}</div></div>', unsafe_allow_html=True)
+        with c2: st.markdown(f'<div class="metric-card success"><h4>Advances</h4><h2 style="font-size: 1.6rem;">{last_row["Advances"]}</h2><div class="sub-metric">Stocks Gaining</div></div>', unsafe_allow_html=True)
+        with c3: st.markdown(f'<div class="metric-card danger"><h4>Declines</h4><h2 style="font-size: 1.6rem;">{last_row["Declines"]}</h2><div class="sub-metric">Stocks Falling</div></div>', unsafe_allow_html=True)
         
         net = last_row["Net_Advances"]
         n_color = "success" if net > 0 else "danger"
-        with c4: 
-            st.markdown(f'<div class="metric-card {n_color}"><h4>Net Advances</h4><h2 style="font-size: 1.6rem;">{net:+}</h2><div class="sub-metric">Breadth Momentum</div></div>', unsafe_allow_html=True)
+        with c4: st.markdown(f'<div class="metric-card {n_color}"><h4>Net Advances</h4><h2 style="font-size: 1.6rem;">{net:+}</h2><div class="sub-metric">Breadth Momentum</div></div>', unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
         
@@ -915,22 +857,22 @@ def main():
         with tab1:
             st.markdown("##### Relative Breadth Oscillator")
             st.markdown('<p style="color: #888888; font-size: 0.85rem;">Fibonacci Sequence MA Smoothing. Green = Oversold | Red = Overbought</p>', unsafe_allow_html=True)
-            st.plotly_chart(plot_relative_breadth(breadth_df), use_container_width=True)
+            st.plotly_chart(plot_relative_breadth(breadth_df), width="stretch")
             
             st.markdown("<br>", unsafe_allow_html=True)
             st.markdown("##### Custom Breadth Oscillator")
             st.markdown('<p style="color: #888888; font-size: 0.85rem;">EMA Smoothed Signal. Green = Oversold | Red = Overbought</p>', unsafe_allow_html=True)
-            st.plotly_chart(plot_custom_breadth(breadth_df), use_container_width=True)
+            st.plotly_chart(plot_custom_breadth(breadth_df), width="stretch")
             
             st.markdown("<br>", unsafe_allow_html=True)
             st.markdown("##### Advance/Decline Ratio (ADR) Oscillator")
             st.markdown('<p style="color: #888888; font-size: 0.85rem;">Raw ADR Metric. Green = Bullish Skew | Red = Bearish Skew</p>', unsafe_allow_html=True)
-            st.plotly_chart(plot_ad_ratio(breadth_df), use_container_width=True)
+            st.plotly_chart(plot_ad_ratio(breadth_df), width="stretch")
             
             st.markdown("<br>", unsafe_allow_html=True)
             st.markdown("##### Cumulative Advance/Decline Line (ADL)")
             st.markdown('<p style="color: #888888; font-size: 0.85rem;">Summation of net advancing stocks to track underlying market momentum.</p>', unsafe_allow_html=True)
-            st.plotly_chart(plot_ad_line(breadth_df), use_container_width=True)
+            st.plotly_chart(plot_ad_line(breadth_df), width="stretch")
 
         with tab2:
             st.markdown(f"##### Historical Breadth Matrix ({spread_index})")
@@ -942,7 +884,7 @@ def main():
             display_df['Relative_Breadth'] = display_df['Relative_Breadth'].round(3)
             display_df.columns = ['Date', 'Advances', 'Declines', 'Unchanged', 'Total', 'Net Advances', 'A/D Ratio', 'A/D Line', 'ADR MA (10)', 'Custom Breadth', 'Relative Breadth']
             
-            st.dataframe(display_df, use_container_width=True, hide_index=True, height=400)
+            st.dataframe(display_df, width="stretch", hide_index=True, height=400)
             
             csv_data = breadth_df.to_csv(index=False).encode('utf-8')
             st.download_button("📥 Export Matrix (CSV)", csv_data, f"{spread_index.replace(' ', '_')}_breadth_{start_date}_{end_date}.csv", "text/csv")
@@ -997,7 +939,7 @@ def main():
             <div class='metric-card info' style='min-height: 280px;'>
                 <h3 style='color: var(--info-cyan); margin-bottom: 1rem;'>🎯 Universe Selection</h3>
                 <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
-                    Apply breadth analysis to major Indian/US indexes, commodities or currencies.
+                    Apply breadth analysis to any major Indian or US Index, commodity futures, or currency pairs.
                 </p>
                 <br>
                 <p style='color: var(--text-secondary); font-size: 0.85rem;'>
@@ -1011,8 +953,8 @@ def main():
         <div class='info-box'>
             <h4>🚀 Getting Started</h4>
             <p style='color: var(--text-muted); line-height: 1.7;'>
-                Open the sidebar, choose your target <strong>Universe</strong> and <strong>Index/Symbol group</strong> (currently <i>{spread_index}</i>), configure the <strong>Date Range</strong>, and click <strong>◈ RUN ANALYSIS</strong>. 
-                The system fetches constituents (or futures/forex pairs), downloads prices (with live today append), and computes breadth metrics.
+                Open the sidebar on the left, choose your target <strong>Universe</strong> and <strong>Index</strong> (currently <i>{spread_index}</i>), configure the <strong>Date Range</strong>, and click <strong>◈ RUN ANALYSIS</strong>. 
+                The system will automatically compute the Time Series Matrix, Cumulative ADL, and bi-color gradient Breadth Oscillators.
             </p>
         </div>
         """, unsafe_allow_html=True)
