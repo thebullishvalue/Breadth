@@ -494,6 +494,8 @@ def plot_ad_ratio(df):
         marker=dict(size=6, color=colors, line=dict(width=0))
     ))
     
+    fig.add_hline(y=1.2, line=dict(color='rgba(16,185,129,0.5)', width=1, dash='dash'))
+    fig.add_hline(y=0.8, line=dict(color='rgba(239,68,68,0.5)', width=1, dash='dash'))
     fig.add_hline(y=mean_val, line=dict(color='rgba(255,255,255,0.2)', width=1))
     
     v_max = df['AD_Ratio'].max()
@@ -559,12 +561,18 @@ def main():
         """, unsafe_allow_html=True)
 
     if run_btn:
+        st.markdown("""
+        <div class="premium-header">
+            <h1>MARKET BREADTH</h1>
+            <div class="tagline">Advance-Decline Intelligence System</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
         if start_date >= end_date:
             st.error("Start date must be prior to End date.")
             return
 
-        status_container = st.empty()
-        with status_container.status("📡 Establishing Vector Engine Connection...", expanded=True) as terminal:
+        with st.status("📡 Establishing Vector Engine Connection...", expanded=True) as terminal:
             st.write("➤ Requesting Index Constituents...")
             stock_list, msg = get_index_constituents()
             st.write(f"&nbsp;&nbsp;&nbsp;↳ {msg}")
@@ -591,8 +599,7 @@ def main():
                 st.error("Insufficient market data for the selected timeframe.")
                 return
                 
-        # Vanish the terminal upon successful analysis completion
-        status_container.empty()
+            terminal.update(label="✅ Market Analysis Complete", state="complete", expanded=False)
 
         # ----------------------------------------------------------------------
         # UNIFIED DISPLAY
@@ -608,15 +615,15 @@ def main():
         elif adr < 1.0: sentiment, s_color = "BEARISH", "danger"
         else: sentiment, s_color = "NEUTRAL", "neutral"
         
-        c_date, c1, c2, c3, c4 = st.columns(5)
-        with c_date: st.markdown(f'<div class="metric-card neutral"><h4>Snapshot</h4><h2 style="font-size: 1.5rem;">{last_date}</h2><div class="sub-metric">Trading Day</div></div>', unsafe_allow_html=True)
-        with c1: st.markdown(f'<div class="metric-card {s_color}"><h4>A/D Ratio</h4><h2 style="font-size: 1.6rem;">{adr:.2f}</h2><div class="sub-metric">{sentiment}</div></div>', unsafe_allow_html=True)
-        with c2: st.markdown(f'<div class="metric-card success"><h4>Advances</h4><h2 style="font-size: 1.6rem;">{last_row["Advances"]}</h2><div class="sub-metric">Stocks Gaining</div></div>', unsafe_allow_html=True)
-        with c3: st.markdown(f'<div class="metric-card danger"><h4>Declines</h4><h2 style="font-size: 1.6rem;">{last_row["Declines"]}</h2><div class="sub-metric">Stocks Falling</div></div>', unsafe_allow_html=True)
+        st.markdown(f"#### 📊 Dashboard Snapshot: {last_date}")
+        c1, c2, c3, c4 = st.columns(4)
+        with c1: st.markdown(f'<div class="metric-card {s_color}"><h4>A/D Ratio</h4><h2>{adr:.2f}</h2><div class="sub-metric">{sentiment}</div></div>', unsafe_allow_html=True)
+        with c2: st.markdown(f'<div class="metric-card success"><h4>Advances</h4><h2>{last_row["Advances"]}</h2><div class="sub-metric">Stocks Gaining</div></div>', unsafe_allow_html=True)
+        with c3: st.markdown(f'<div class="metric-card danger"><h4>Declines</h4><h2>{last_row["Declines"]}</h2><div class="sub-metric">Stocks Falling</div></div>', unsafe_allow_html=True)
         
         net = last_row["Net_Advances"]
         n_color = "success" if net > 0 else "danger"
-        with c4: st.markdown(f'<div class="metric-card {n_color}"><h4>Net Advances</h4><h2 style="font-size: 1.6rem;">{net:+}</h2><div class="sub-metric">Breadth Momentum</div></div>', unsafe_allow_html=True)
+        with c4: st.markdown(f'<div class="metric-card {n_color}"><h4>Net Advances</h4><h2>{net:+}</h2><div class="sub-metric">Breadth Momentum</div></div>', unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
         
@@ -627,18 +634,15 @@ def main():
             st.markdown('<p style="color: #888888; font-size: 0.85rem;">Fibonacci Sequence MA Smoothing. Green = Oversold | Red = Overbought</p>', unsafe_allow_html=True)
             st.plotly_chart(plot_relative_breadth(breadth_df), width="stretch", config={'displayModeBar': False})
             
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown("##### Custom Breadth Oscillator")
+            st.markdown("<br>##### Custom Breadth Oscillator", unsafe_allow_html=True)
             st.markdown('<p style="color: #888888; font-size: 0.85rem;">EMA Smoothed Signal. Green = Oversold | Red = Overbought</p>', unsafe_allow_html=True)
             st.plotly_chart(plot_custom_breadth(breadth_df), width="stretch", config={'displayModeBar': False})
             
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown("##### Advance/Decline Ratio (ADR) Oscillator")
+            st.markdown("<br>##### Advance/Decline Ratio (ADR) Oscillator", unsafe_allow_html=True)
             st.markdown('<p style="color: #888888; font-size: 0.85rem;">Raw ADR Metric. Green = Bullish Skew | Red = Bearish Skew</p>', unsafe_allow_html=True)
             st.plotly_chart(plot_ad_ratio(breadth_df), width="stretch", config={'displayModeBar': False})
             
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown("##### Cumulative Advance/Decline Line (ADL)")
+            st.markdown("<br>##### Cumulative Advance/Decline Line (ADL)", unsafe_allow_html=True)
             st.markdown('<p style="color: #888888; font-size: 0.85rem;">Summation of net advancing stocks to track underlying market momentum.</p>', unsafe_allow_html=True)
             st.plotly_chart(plot_ad_line(breadth_df), width="stretch", config={'displayModeBar': False})
 
