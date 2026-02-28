@@ -4,6 +4,7 @@ MARKET BREADTH - Advance/Decline Intelligence | A Hemrek Capital Product
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Unified ETF & Index breadth tracking with institutional-grade time series 
 analysis, cumulative A/D lines, and real-time market snapshots.
+Nirnay.py data fetching mechanism fully integrated (4 universes + live append)
 """
 
 import streamlit as st
@@ -31,7 +32,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-VERSION = "v1.6.0 (Universe Sync)"
+VERSION = "v1.7.0 (Nirnay Data Engine Sync)"
 PRODUCT_NAME = "Market Breadth"
 COMPANY = "Hemrek Capital"
 
@@ -173,7 +174,7 @@ st.markdown("""
     .signal-card.buy::before { background: var(--success-green); }
     .signal-card.sell::before { background: var(--danger-red); }
     
-    .info-box { background: var(--secondary-background-color); border: 1px solid var(--border-color); border-left: 0px solid var(--primary-color); padding: 1.25rem; border-radius: 12px; margin: 0.5rem 0; box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08); }
+    .info-box { background: var(--secondary-background-color); border: 1px solid var(--border-color); border-left: 4px solid var(--primary-color); padding: 1.25rem; border-radius: 12px; margin: 0.5rem 0; box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08); }
     .info-box h4 { color: var(--primary-color); margin: 0 0 0.5rem 0; font-size: 1rem; font-weight: 700; }
     .info-box p { color: var(--text-muted); margin: 0; font-size: 0.9rem; line-height: 1.6; }
     
@@ -213,7 +214,7 @@ INDIA_INDEX_LIST = [
 
 US_INDEX_LIST = ["S&P 500", "DOW JONES", "NASDAQ 100"]
 
-ANALYSIS_UNIVERSE_OPTIONS = ["India Indexes", "US Indexes"]
+ANALYSIS_UNIVERSE_OPTIONS = ["India Indexes", "US Indexes", "Commodities", "Currency"]
 
 BASE_URL = "https://www.niftyindices.com/IndexConstituent/"
 INDEX_URL_MAP = {
@@ -253,8 +254,29 @@ FALLBACK_TICKERS = [
     "AXISBANK.NS", "MARUTI.NS", "SUNPHARMA.NS", "ULTRACEMCO.NS", "TATAMOTORS.NS"
 ]
 
+COMMODITY_TICKERS = {
+    "GC=F": "Gold", "SI=F": "Silver", "PL=F": "Platinum", "PA=F": "Palladium",
+    "HG=F": "Copper", "CL=F": "Crude Oil WTI", "BZ=F": "Brent Crude",
+    "NG=F": "Natural Gas", "RB=F": "Gasoline RBOB", "HO=F": "Heating Oil",
+    "ZC=F": "Corn", "ZW=F": "Wheat", "ZS=F": "Soybeans", "ZM=F": "Soybean Meal",
+    "ZL=F": "Soybean Oil", "CT=F": "Cotton", "KC=F": "Coffee", "SB=F": "Sugar",
+    "CC=F": "Cocoa", "OJ=F": "Orange Juice", "LBS=F": "Lumber",
+    "LE=F": "Live Cattle", "HE=F": "Lean Hogs", "GF=F": "Feeder Cattle",
+}
+
+CURRENCY_TICKERS = {
+    "EURUSD=X": "EUR/USD", "GBPUSD=X": "GBP/USD", "USDJPY=X": "USD/JPY",
+    "USDCHF=X": "USD/CHF", "AUDUSD=X": "AUD/USD", "USDCAD=X": "USD/CAD",
+    "NZDUSD=X": "NZD/USD", "USDINR=X": "USD/INR", "EURGBP=X": "EUR/GBP",
+    "EURJPY=X": "EUR/JPY", "GBPJPY=X": "GBP/JPY", "AUDJPY=X": "AUD/JPY",
+    "EURCHF=X": "EUR/CHF", "EURAUD=X": "EUR/AUD", "GBPCHF=X": "GBP/CHF",
+    "GBPAUD=X": "GBP/AUD", "USDSGD=X": "USD/SGD", "USDHKD=X": "USD/HKD",
+    "USDCNH=X": "USD/CNH", "USDZAR=X": "USD/ZAR", "USDMXN=X": "USD/MXN",
+    "USDTRY=X": "USD/TRY", "USDBRL=X": "USD/BRL", "USDKRW=X": "USD/KRW",
+}
+
 # ══════════════════════════════════════════════════════════════════════════════
-# CRASH-PROOF DATA ENGINE
+# DATA FETCH HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _fetch_india_index_from_wikipedia(index):
@@ -310,7 +332,10 @@ def _fetch_india_index_from_wikipedia(index):
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_index_stock_list(index):
-    """Fetch Indian index constituents from NSE Indices with Wikipedia fallback"""
+    """Fetch Indian index constituents from NSE with Wikipedia fallback"""
+    if index in US_INDEX_LIST:
+        return get_us_index_stock_list(index)
+
     url = INDEX_URL_MAP.get(index)
     if not url:
         return FALLBACK_TICKERS, f"Error: No URL for {index}. Using fallback tickers."
@@ -398,43 +423,103 @@ def get_us_index_stock_list(index):
         return None, f"Error fetching {index}: {e}"
 
 
+def get_commodity_list():
+    tickers = list(COMMODITY_TICKERS.keys())
+    return tickers, f"Success: Loaded {len(tickers)} commodity futures"
+
+
+def get_currency_list():
+    tickers = list(CURRENCY_TICKERS.keys())
+    return tickers, f"Success: Loaded {len(tickers)} currency pairs"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MAIN DATA FETCH FUNCTION ── ported from nirnay.py
+# ══════════════════════════════════════════════════════════════════════════════
+
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_market_data(stock_list, start_date, end_date):
-    """Highly Optimized Bulk Fetch."""
-    download_end = end_date + datetime.timedelta(days=1)
+    """Nirnay-style fetch: group_by ticker + live today append + extra buffer"""
+    if end_date is None:
+        end_date = datetime.date.today()
+    
+    download_end = end_date + datetime.timedelta(days=5)
+    start_date_calc = end_date - datetime.timedelta(days=300 + 365)  # extra buffer like nirnay
     
     try:
         all_data = yf.download(
             stock_list,
-            start=start_date,
+            start=start_date_calc,
             end=download_end,
             progress=False,
             auto_adjust=True,
-            threads=True, 
-            ignore_tz=True 
+            group_by='ticker'
         )
         
         if all_data.empty:
             return None, "No data returned from Exchange."
+        
+        data_dict = {}
+        for ticker in stock_list:
+            try:
+                if isinstance(all_data.columns, pd.MultiIndex):
+                    ticker_df = all_data.xs(ticker, level=0, axis=1)
+                else:
+                    ticker_df = all_data.get(ticker, pd.DataFrame())
+                if not ticker_df.empty and 'Close' in ticker_df.columns:
+                    data_dict[ticker] = ticker_df[['Close']].copy()
+            except Exception:
+                pass
+        
+        # ── LIVE / TODAY APPEND LOGIC ───────────────────────────────────────
+        if end_date == datetime.date.today() and data_dict:
+            sample = next(iter(data_dict.values()))
+            sample.index = pd.to_datetime(sample.index).normalize().tz_localize(None)
+            has_today = any(idx.date() == datetime.date.today() for idx in sample.index)
             
-        if 'Close' in all_data.columns.levels[0]:
-            close_df = all_data['Close']
-        elif 'Close' in all_data.columns:
-            close_df = all_data[['Close']]
-        else:
-            return None, "Unexpected data structure."
-            
-        return close_df, f"Success: Market matrix built for {len(close_df.columns)} assets."
-
+            if not has_today:
+                try:
+                    live_data = yf.download(
+                        list(data_dict.keys()),
+                        period="1d",
+                        progress=False,
+                        auto_adjust=True,
+                        group_by='ticker'
+                    )
+                    if not live_data.empty and isinstance(live_data.columns, pd.MultiIndex):
+                        for ticker in list(data_dict.keys()):
+                            try:
+                                live_t = live_data.xs(ticker, level=0, axis=1)
+                                if not live_t.empty and 'Close' in live_t:
+                                    hist = data_dict[ticker]
+                                    hist.index = pd.to_datetime(hist.index).normalize().tz_localize(None)
+                                    live_t.index = pd.to_datetime(live_t.index).normalize().tz_localize(None)
+                                    new_dates = live_t.index.difference(hist.index)
+                                    if len(new_dates) > 0:
+                                        data_dict[ticker] = pd.concat([hist, live_t.loc[new_dates][['Close']]])
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+        
+        # Build final close DataFrame
+        if not data_dict:
+            return None, "No valid data for any ticker."
+        
+        close_df = pd.DataFrame({t: data_dict[t]['Close'] for t in data_dict})
+        close_df = close_df.sort_index().dropna(axis=1, how='all')
+        
+        return close_df, f"Success: Market matrix built for {len(close_df.columns)} assets (live append applied if needed)."
+        
     except Exception as e:
         return None, f"Fatal Download Error: {e}"
 
+
 # ══════════════════════════════════════════════════════════════════════════════
-# ULTRA-FAST VECTORIZED ANALYTICS ENGINE
+# BREADTH CALCULATION ENGINE
 # ══════════════════════════════════════════════════════════════════════════════
 
 def compute_timeseries(close_df, start_ts, end_ts):
-    """Calculates Breadth instantaneously using Pandas Vectorization."""
     close_df.index = pd.to_datetime(close_df.index).normalize().tz_localize(None)
     close_df = close_df.ffill(limit=2)
     
@@ -473,7 +558,7 @@ def compute_timeseries(close_df, start_ts, end_ts):
     breadth_df['AD_Line'] = breadth_df['Net_Advances'].cumsum()
     breadth_df['ADR_MA10'] = breadth_df['AD_Ratio'].rolling(window=10, min_periods=1).mean()
     
-    # --- CUSTOM BREADTH CALCULATION (Fully Primed) ---
+    # Custom Breadth
     x_vals = breadth_df['AD_Ratio'] / (breadth_df['AD_Ratio'] + 1)
     x_ma10 = x_vals.rolling(window=10, min_periods=10).mean()
     
@@ -490,7 +575,7 @@ def compute_timeseries(close_df, start_ts, end_ts):
             
     breadth_df['Custom_Breadth'] = breadth_vals
     
-    # --- RELATIVE BREADTH CALCULATION (Fully Primed) ---
+    # Relative Breadth
     cb = breadth_df['Custom_Breadth']
     ma2 = cb.rolling(window=2, min_periods=1).mean()
     ma3 = cb.rolling(window=3, min_periods=1).mean()
@@ -502,7 +587,7 @@ def compute_timeseries(close_df, start_ts, end_ts):
     Z = (ma2 + ma3 + ma5 + ma8 + ma13 + ma21) / 6.0
     breadth_df['Relative_Breadth'] = (Z + cb) / 2.0
     
-    # NOW FILTER to the User's Requested Timeframe
+    # Filter to user-selected timeframe
     view_mask = (breadth_df['Date'] >= start_ts) & (breadth_df['Date'] <= end_ts)
     final_breadth_df = breadth_df.loc[view_mask].copy().reset_index(drop=True)
     
@@ -513,13 +598,12 @@ def compute_timeseries(close_df, start_ts, end_ts):
     
     last_date = final_breadth_df['Date'].iloc[-1]
     
-    # Fix for last date if not perfectly matched in original df
     if last_date in pct_change_df.index:
         last_changes = pct_change_df.loc[last_date]
         last_prices = close_df.loc[last_date]
         
         movers_df = pd.DataFrame({
-            'Symbol': [str(s).replace('.NS', '') for s in last_changes.index],
+            'Symbol': [str(s).replace('.NS', '').replace('=X', '') for s in last_changes.index],
             'Price': last_prices.values,
             'Change_%': last_changes.values * 100
         })
@@ -531,8 +615,9 @@ def compute_timeseries(close_df, start_ts, end_ts):
         
     return final_breadth_df, movers_df
 
+
 # ══════════════════════════════════════════════════════════════════════════════
-# VISUALIZATION COMPONENTS (NIRNAY STYLE)
+# VISUALIZATION COMPONENTS
 # ══════════════════════════════════════════════════════════════════════════════
 
 def plot_relative_breadth(df):
@@ -579,6 +664,7 @@ def plot_relative_breadth(df):
     )
     return fig
 
+
 def plot_custom_breadth(df):
     fig = go.Figure()
     
@@ -623,6 +709,7 @@ def plot_custom_breadth(df):
     )
     return fig
 
+
 def plot_ad_ratio(df):
     fig = go.Figure()
     
@@ -666,6 +753,7 @@ def plot_ad_ratio(df):
     )
     return fig
 
+
 def plot_ad_line(df):
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -681,6 +769,7 @@ def plot_ad_line(df):
     )
     return fig
 
+
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN APPLICATION
 # ══════════════════════════════════════════════════════════════════════════════
@@ -695,29 +784,32 @@ def main():
         """, unsafe_allow_html=True)
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
         
-        # ── UNIVERSE SELECTION (From Nirnay) ──
         st.markdown('<div class="sidebar-title">🎯 Universe Selection</div>', unsafe_allow_html=True)
         spread_universe = st.selectbox(
             "Analysis Universe",
             ANALYSIS_UNIVERSE_OPTIONS,
             index=0,
-            help="Choose between India Index Constituents or US Index Constituents."
+            help="Choose between India Index Constituents, US Indexes, Commodities or Currencies."
         )
         
         if spread_universe == "India Indexes":
             spread_index = st.selectbox(
                 "Select Index",
                 INDIA_INDEX_LIST,
-                index=INDIA_INDEX_LIST.index("NIFTY 500"), # Default to NIFTY 500
+                index=INDIA_INDEX_LIST.index("NIFTY 500"),
                 help="Select a specific NIFTY index for constituent analysis."
             )
-        else:
+        elif spread_universe == "US Indexes":
             spread_index = st.selectbox(
                 "Select Index",
                 US_INDEX_LIST,
                 index=0,
                 help="Select the US index for constituent analysis."
             )
+        elif spread_universe == "Commodities":
+            spread_index = "Commodities"
+        else:
+            spread_index = "Currencies"
             
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
@@ -733,8 +825,8 @@ def main():
         <div class='info-box'>
             <p style='font-size: 0.8rem; margin: 0; color: var(--text-muted); line-height: 1.5;'>
                 <strong>Version:</strong> {VERSION}<br>
-                <strong>Engine:</strong> Vector Core<br>
-                <strong>Universe:</strong> {spread_index}
+                <strong>Engine:</strong> Vector + Nirnay Data Sync<br>
+                <strong>Universe:</strong> {spread_universe} – {spread_index}
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -746,19 +838,23 @@ def main():
 
         status_container = st.empty()
         with status_container.status("📡 Establishing Vector Engine Connection...", expanded=True) as terminal:
-            st.write(f"➤ Requesting {spread_index} Constituents...")
+            st.write(f"➤ Requesting {spread_universe} universe ({spread_index})...")
             
-            # Fetch universe specific stocks
             if spread_universe == "India Indexes":
                 stock_list, msg = get_index_stock_list(spread_index)
-            else:
+            elif spread_universe == "US Indexes":
                 stock_list, msg = get_us_index_stock_list(spread_index)
+            elif spread_universe == "Commodities":
+                stock_list, msg = get_commodity_list()
+            else:
+                stock_list, msg = get_currency_list()
                 
+            st.write(f"&nbsp;&nbsp;&nbsp;↳ {msg}")
+            
             if not stock_list:
                 terminal.update(label="❌ Universe Error", state="error")
-                st.error(msg)
+                st.error("Could not obtain ticker list.")
                 return
-            st.write(f"&nbsp;&nbsp;&nbsp;↳ {msg}")
             
             st.write(f"➤ Connecting to Exchange Data ({len(stock_list)} assets)...")
             fetch_start = end_date - datetime.timedelta(days=300) 
@@ -782,13 +878,9 @@ def main():
                 st.error("Insufficient market data for the selected timeframe. Could be a weekend or holiday.")
                 return
                 
-        # Vanish the terminal upon successful analysis completion
         status_container.empty()
 
-        # ----------------------------------------------------------------------
-        # UNIFIED DISPLAY
-        # ----------------------------------------------------------------------
-        
+        # ── DISPLAY RESULTS ──────────────────────────────────────────────────────
         last_date = breadth_df['Date'].iloc[-1].strftime("%d %b %Y")
         last_row = breadth_df.iloc[-1]
         
@@ -799,17 +891,22 @@ def main():
         elif adr < 1.0: sentiment, s_color = "BEARISH", "danger"
         else: sentiment, s_color = "NEUTRAL", "neutral"
         
-        st.markdown(f"### Breadth Analysis: {spread_index}")
+        st.markdown(f"### Breadth Analysis: {spread_index} ({spread_universe})")
         
         c_date, c1, c2, c3, c4 = st.columns(5)
-        with c_date: st.markdown(f'<div class="metric-card neutral"><h4>Snapshot</h4><h2 style="font-size: 1.5rem;">{last_date}</h2><div class="sub-metric">Trading Day</div></div>', unsafe_allow_html=True)
-        with c1: st.markdown(f'<div class="metric-card {s_color}"><h4>A/D Ratio</h4><h2 style="font-size: 1.6rem;">{adr:.2f}</h2><div class="sub-metric">{sentiment}</div></div>', unsafe_allow_html=True)
-        with c2: st.markdown(f'<div class="metric-card success"><h4>Advances</h4><h2 style="font-size: 1.6rem;">{last_row["Advances"]}</h2><div class="sub-metric">Stocks Gaining</div></div>', unsafe_allow_html=True)
-        with c3: st.markdown(f'<div class="metric-card danger"><h4>Declines</h4><h2 style="font-size: 1.6rem;">{last_row["Declines"]}</h2><div class="sub-metric">Stocks Falling</div></div>', unsafe_allow_html=True)
+        with c_date: 
+            st.markdown(f'<div class="metric-card neutral"><h4>Snapshot</h4><h2 style="font-size: 1.5rem;">{last_date}</h2><div class="sub-metric">Trading Day</div></div>', unsafe_allow_html=True)
+        with c1: 
+            st.markdown(f'<div class="metric-card {s_color}"><h4>A/D Ratio</h4><h2 style="font-size: 1.6rem;">{adr:.2f}</h2><div class="sub-metric">{sentiment}</div></div>', unsafe_allow_html=True)
+        with c2: 
+            st.markdown(f'<div class="metric-card success"><h4>Advances</h4><h2 style="font-size: 1.6rem;">{last_row["Advances"]}</h2><div class="sub-metric">Stocks Gaining</div></div>', unsafe_allow_html=True)
+        with c3: 
+            st.markdown(f'<div class="metric-card danger"><h4>Declines</h4><h2 style="font-size: 1.6rem;">{last_row["Declines"]}</h2><div class="sub-metric">Stocks Falling</div></div>', unsafe_allow_html=True)
         
         net = last_row["Net_Advances"]
         n_color = "success" if net > 0 else "danger"
-        with c4: st.markdown(f'<div class="metric-card {n_color}"><h4>Net Advances</h4><h2 style="font-size: 1.6rem;">{net:+}</h2><div class="sub-metric">Breadth Momentum</div></div>', unsafe_allow_html=True)
+        with c4: 
+            st.markdown(f'<div class="metric-card {n_color}"><h4>Net Advances</h4><h2 style="font-size: 1.6rem;">{net:+}</h2><div class="sub-metric">Breadth Momentum</div></div>', unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
         
@@ -818,22 +915,22 @@ def main():
         with tab1:
             st.markdown("##### Relative Breadth Oscillator")
             st.markdown('<p style="color: #888888; font-size: 0.85rem;">Fibonacci Sequence MA Smoothing. Green = Oversold | Red = Overbought</p>', unsafe_allow_html=True)
-            st.plotly_chart(plot_relative_breadth(breadth_df), width="stretch", config={'displayModeBar': False})
+            st.plotly_chart(plot_relative_breadth(breadth_df), use_container_width=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
             st.markdown("##### Custom Breadth Oscillator")
             st.markdown('<p style="color: #888888; font-size: 0.85rem;">EMA Smoothed Signal. Green = Oversold | Red = Overbought</p>', unsafe_allow_html=True)
-            st.plotly_chart(plot_custom_breadth(breadth_df), width="stretch", config={'displayModeBar': False})
+            st.plotly_chart(plot_custom_breadth(breadth_df), use_container_width=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
             st.markdown("##### Advance/Decline Ratio (ADR) Oscillator")
             st.markdown('<p style="color: #888888; font-size: 0.85rem;">Raw ADR Metric. Green = Bullish Skew | Red = Bearish Skew</p>', unsafe_allow_html=True)
-            st.plotly_chart(plot_ad_ratio(breadth_df), width="stretch", config={'displayModeBar': False})
+            st.plotly_chart(plot_ad_ratio(breadth_df), use_container_width=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
             st.markdown("##### Cumulative Advance/Decline Line (ADL)")
             st.markdown('<p style="color: #888888; font-size: 0.85rem;">Summation of net advancing stocks to track underlying market momentum.</p>', unsafe_allow_html=True)
-            st.plotly_chart(plot_ad_line(breadth_df), width="stretch", config={'displayModeBar': False})
+            st.plotly_chart(plot_ad_line(breadth_df), use_container_width=True)
 
         with tab2:
             st.markdown(f"##### Historical Breadth Matrix ({spread_index})")
@@ -845,7 +942,7 @@ def main():
             display_df['Relative_Breadth'] = display_df['Relative_Breadth'].round(3)
             display_df.columns = ['Date', 'Advances', 'Declines', 'Unchanged', 'Total', 'Net Advances', 'A/D Ratio', 'A/D Line', 'ADR MA (10)', 'Custom Breadth', 'Relative Breadth']
             
-            st.dataframe(display_df, width="stretch", hide_index=True, height=400)
+            st.dataframe(display_df, use_container_width=True, hide_index=True, height=400)
             
             csv_data = breadth_df.to_csv(index=False).encode('utf-8')
             st.download_button("📥 Export Matrix (CSV)", csv_data, f"{spread_index.replace(' ', '_')}_breadth_{start_date}_{end_date}.csv", "text/csv")
@@ -900,7 +997,7 @@ def main():
             <div class='metric-card info' style='min-height: 280px;'>
                 <h3 style='color: var(--info-cyan); margin-bottom: 1rem;'>🎯 Universe Selection</h3>
                 <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
-                    Apply breadth analysis to any major Indian or US Index to gauge true market representation and internals.
+                    Apply breadth analysis to major Indian/US indexes, commodities or currencies.
                 </p>
                 <br>
                 <p style='color: var(--text-secondary); font-size: 0.85rem;'>
@@ -914,8 +1011,8 @@ def main():
         <div class='info-box'>
             <h4>🚀 Getting Started</h4>
             <p style='color: var(--text-muted); line-height: 1.7;'>
-                Open the sidebar on the left, choose your target <strong>Universe</strong> and <strong>Index</strong> (currently <i>{spread_index}</i>), configure the <strong>Date Range</strong>, and click <strong>◈ RUN ANALYSIS</strong>. 
-                The system will automatically compute the Time Series Matrix, Cumulative ADL, and bi-color gradient Breadth Oscillators.
+                Open the sidebar, choose your target <strong>Universe</strong> and <strong>Index/Symbol group</strong> (currently <i>{spread_index}</i>), configure the <strong>Date Range</strong>, and click <strong>◈ RUN ANALYSIS</strong>. 
+                The system fetches constituents (or futures/forex pairs), downloads prices (with live today append), and computes breadth metrics.
             </p>
         </div>
         """, unsafe_allow_html=True)
