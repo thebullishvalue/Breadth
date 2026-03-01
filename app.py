@@ -534,7 +534,7 @@ def compute_timeseries(close_df, start_ts, end_ts):
     
     if first_valid is not None:
         breadth_vals[first_valid] = x_ma10.loc[first_valid]
-        C = 0.1
+        C = 2.0 / (10 + 1)  # EMA smoothing factor = 2/(period+1)
         for i in range(first_valid + 1, len(breadth_df)):
             prev = breadth_vals[i-1]
             curr = x_vals.iloc[i]
