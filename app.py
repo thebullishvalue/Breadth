@@ -10,15 +10,13 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import datetime
-import time
 import numpy as np
 import plotly.graph_objects as go
 import requests
 import io
 import urllib3
-
-# Disable SSL warnings
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE CONFIGURATION
@@ -31,7 +29,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-VERSION = "v1.7.1 (2026 Streamlit width fix + clearer status)"
+VERSION = "v1.8.0 (2026 Fetch pipeline optimization + EMA fix)"
 PRODUCT_NAME = "Market Breadth"
 COMPANY = "Hemrek Capital"
 
@@ -299,8 +297,11 @@ def _fetch_india_index_from_wikipedia(index):
 
     try:
         if index == "NIFTY 100":
-            n50 = _parse_wiki_table(INDIA_INDEX_WIKI_MAP["NIFTY 50"], min_count=40)
-            nn50 = _parse_wiki_table(INDIA_INDEX_WIKI_MAP["NIFTY NEXT 50"], min_count=40)
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                f_n50  = pool.submit(_parse_wiki_table, INDIA_INDEX_WIKI_MAP["NIFTY 50"], 40)
+                f_nn50 = pool.submit(_parse_wiki_table, INDIA_INDEX_WIKI_MAP["NIFTY NEXT 50"], 40)
+                n50  = f_n50.result()
+                nn50 = f_nn50.result()
             if n50 and nn50:
                 combined = list(dict.fromkeys(n50 + nn50))
                 symbols_ns = [s + ".NS" for s in combined]
@@ -339,7 +340,9 @@ def get_index_stock_list(index):
 
     try:
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        response = requests.get(url, headers=headers, verify=False, timeout=10)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", urllib3.exceptions.InsecureRequestWarning)
+            response = requests.get(url, headers=headers, verify=False, timeout=10)
         response.raise_for_status()
         csv_file = io.StringIO(response.text)
         stock_df = pd.read_csv(csv_file)
@@ -414,13 +417,17 @@ def fetch_market_data(stock_list, start_date, end_date):
     if end_date is None:
         end_date = datetime.date.today()
     
-    download_end = end_date + datetime.timedelta(days=5)
-    start_date_calc = end_date - datetime.timedelta(days=300 + 365)
+    # Tight lookback: ~30 calendar days before user start_date gives ~20 trading
+    # days of warm-up, enough to seed 10-period SMA + EMA ramp. The old value of
+    # 665 days downloaded ~2 years of data for every run regardless of window size.
+    warmup_days = 45  # ~30 trading days with weekends/holidays buffer
+    download_start = start_date - datetime.timedelta(days=warmup_days)
+    download_end = end_date + datetime.timedelta(days=3)
 
     try:
         all_data = yf.download(
             stock_list,
-            start=start_date_calc,
+            start=download_start,
             end=download_end,
             progress=False,
             auto_adjust=True,
@@ -430,56 +437,57 @@ def fetch_market_data(stock_list, start_date, end_date):
         if all_data.empty:
             return None, "No data returned from yfinance"
         
-        data_dict = {}
-        for ticker in stock_list:
-            try:
-                if isinstance(all_data.columns, pd.MultiIndex):
-                    ticker_df = all_data.xs(ticker, level=0, axis=1)
-                else:
-                    ticker_df = all_data.get(ticker, pd.DataFrame())
-                if not ticker_df.empty and 'Close' in ticker_df.columns:
-                    data_dict[ticker] = ticker_df[['Close']].copy()
-            except Exception:
-                pass
+        # Single-shot Close extraction — replaces per-ticker .xs() loop
+        if isinstance(all_data.columns, pd.MultiIndex):
+            if 'Close' in all_data.columns.get_level_values(1):
+                close_df = all_data.xs('Close', level=1, axis=1).copy()
+            else:
+                return None, "No 'Close' column found in downloaded data"
+        else:
+            # Single ticker case
+            if 'Close' in all_data.columns:
+                close_df = all_data[['Close']].copy()
+                close_df.columns = [stock_list[0]] if len(stock_list) == 1 else close_df.columns
+            else:
+                return None, "No 'Close' column found in downloaded data"
         
-        # Live data append if today is missing
-        if end_date == datetime.date.today() and data_dict:
-            sample = next(iter(data_dict.values()))
-            sample.index = pd.to_datetime(sample.index).normalize().tz_localize(None)
-            has_today = any(idx.date() == datetime.date.today() for idx in sample.index)
+        close_df = close_df.sort_index().dropna(axis=1, how='all')
+        
+        if close_df.empty:
+            return None, "No valid ticker data after processing"
+        
+        # Vectorized live append — single merge instead of per-ticker loop
+        if end_date == datetime.date.today():
+            close_df.index = pd.to_datetime(close_df.index).normalize().tz_localize(None)
+            today = pd.Timestamp(datetime.date.today())
             
-            if not has_today:
+            if today not in close_df.index:
                 try:
+                    live_tickers = close_df.columns.tolist()
                     live_data = yf.download(
-                        list(data_dict.keys()),
+                        live_tickers,
                         period="1d",
                         progress=False,
                         auto_adjust=True,
                         group_by='ticker'
                     )
-                    if not live_data.empty and isinstance(live_data.columns, pd.MultiIndex):
-                        for ticker in list(data_dict.keys()):
-                            try:
-                                live_t = live_data.xs(ticker, level=0, axis=1)
-                                if not live_t.empty and 'Close' in live_t:
-                                    hist = data_dict[ticker]
-                                    hist.index = pd.to_datetime(hist.index).normalize().tz_localize(None)
-                                    live_t.index = pd.to_datetime(live_t.index).normalize().tz_localize(None)
-                                    new_dates = live_t.index.difference(hist.index)
-                                    if len(new_dates) > 0:
-                                        data_dict[ticker] = pd.concat([hist, live_t.loc[new_dates][['Close']]])
-                            except Exception:
-                                pass
+                    if not live_data.empty:
+                        if isinstance(live_data.columns, pd.MultiIndex):
+                            live_close = live_data.xs('Close', level=1, axis=1)
+                        else:
+                            live_close = live_data[['Close']]
+                            live_close.columns = live_tickers[:1]
+                        
+                        live_close.index = pd.to_datetime(live_close.index).normalize().tz_localize(None)
+                        # Append only rows with dates not already present
+                        new_mask = ~live_close.index.isin(close_df.index)
+                        if new_mask.any():
+                            close_df = pd.concat([close_df, live_close.loc[new_mask]])
+                            close_df = close_df.sort_index()
                 except Exception:
-                    pass
+                    pass  # live append is best-effort
         
-        if not data_dict:
-            return None, "No valid ticker data after processing"
-        
-        close_df = pd.DataFrame({t: data_dict[t]['Close'] for t in data_dict})
-        close_df = close_df.sort_index().dropna(axis=1, how='all')
-        
-        return close_df, f"Built close matrix for {len(close_df.columns)} assets (live append applied if needed)"
+        return close_df, f"Built close matrix for {len(close_df.columns)} assets ({len(close_df)} trading days)"
         
     except Exception as e:
         return None, f"Fatal download error: {str(e)}"
@@ -534,7 +542,7 @@ def compute_timeseries(close_df, start_ts, end_ts):
     
     if first_valid is not None:
         breadth_vals[first_valid] = x_ma10.loc[first_valid]
-        C = 2.0 / (10 + 1)  # EMA smoothing factor = 2/(period+1)
+        C = 2.0 / (10 + 1)  # EMA smoothing factor: 2/(period+1) ≈ 0.18182
         for i in range(first_valid + 1, len(breadth_df)):
             prev = breadth_vals[i-1]
             curr = x_vals.iloc[i]
@@ -553,6 +561,14 @@ def compute_timeseries(close_df, start_ts, end_ts):
     
     Z = (ma2 + ma3 + ma5 + ma8 + ma13 + ma21) / 6.0
     breadth_df['Relative_Breadth'] = (Z + cb) / 2.0
+    
+    # Relative AD Ratio — momentum-of-breadth signal from Aarambh
+    diff_adr = breadth_df['AD_Ratio'].diff()                        # daily change in ADR
+    ma2_diff = diff_adr.rolling(2, min_periods=1).mean()            # 2D smoothed change
+    ma3_diff = diff_adr.rolling(3, min_periods=1).mean()            # 3D smoothed change
+    ma5_diff = diff_adr.rolling(5, min_periods=1).mean()            # 5D smoothed change
+    multi_avg = (ma2_diff + ma3_diff + ma5_diff) / 3.0             # composite of multi-day
+    breadth_df['Rel_AD_Ratio'] = (diff_adr + multi_avg) / 2.0      # blend raw + composite
     
     # Filter to requested window
     view_mask = (breadth_df['Date'] >= start_ts) & (breadth_df['Date'] <= end_ts)
@@ -618,6 +634,42 @@ def plot_relative_breadth(df):
         margin=dict(l=10,r=10,t=10,b=10),
         xaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)'),
         yaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)', title='Relative Breadth', range=[y_min, y_max]),
+        font=dict(family='Inter', color='#EAEAEA'), hovermode='x unified'
+    )
+    return fig
+
+
+def plot_rel_ad_ratio(df):
+    fig = go.Figure()
+    mean_val = 0.0
+    vals = df['Rel_AD_Ratio'].dropna()
+    
+    colors = ['#10b981' if v > 0 else '#ef4444' for v in df['Rel_AD_Ratio']]
+    
+    fig.add_trace(go.Scatter(x=df['Date'], y=[mean_val]*len(df), line=dict(width=0), showlegend=False, hoverinfo='skip'))
+    fig.add_trace(go.Scatter(x=df['Date'], y=df['Rel_AD_Ratio'].clip(lower=mean_val),
+                             fill='tonexty', fillcolor='rgba(16,185,129,0.15)', line=dict(width=0), showlegend=False))
+    fig.add_trace(go.Scatter(x=df['Date'], y=[mean_val]*len(df), line=dict(width=0), showlegend=False, hoverinfo='skip'))
+    fig.add_trace(go.Scatter(x=df['Date'], y=df['Rel_AD_Ratio'].clip(upper=mean_val),
+                             fill='tonexty', fillcolor='rgba(239,68,68,0.15)', line=dict(width=0), showlegend=False))
+    
+    fig.add_trace(go.Scatter(x=df['Date'], y=df['Rel_AD_Ratio'], mode='lines+markers',
+                             name='Rel A/D Ratio', line=dict(color='#FFC300', width=2),
+                             marker=dict(size=6, color=colors, line=dict(width=0))))
+    
+    fig.add_hline(y=mean_val, line=dict(color='rgba(255,255,255,0.2)', width=1))
+    
+    v_max = vals.max() if not vals.empty else 0.5
+    v_min = vals.min() if not vals.empty else -0.5
+    pad = max(abs(v_max), abs(v_min)) * 0.15
+    y_max = float(v_max + pad) if pd.notna(v_max) else 0.5
+    y_min = float(v_min - pad) if pd.notna(v_min) else -0.5
+    
+    fig.update_layout(
+        template='plotly_dark', paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#1A1A1A', height=350,
+        margin=dict(l=10,r=10,t=10,b=10),
+        xaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)'),
+        yaxis=dict(showgrid=True, gridcolor='rgba(42,42,42,0.5)', title='Rel A/D Ratio', range=[y_min, y_max]),
         font=dict(family='Inter', color='#EAEAEA'), hovermode='x unified'
     )
     return fig
@@ -798,8 +850,7 @@ def main():
                 return
             
             terminal.write(f"➤ Downloading price data ({len(stock_list)} symbols)...")
-            fetch_start = end_date - datetime.timedelta(days=300)
-            close_df, dl_msg = fetch_market_data(stock_list, fetch_start, end_date)
+            close_df, dl_msg = fetch_market_data(stock_list, start_date, end_date)
             
             if close_df is None:
                 terminal.update(label="❌ Connection Failed", state="error")
@@ -860,6 +911,11 @@ def main():
             st.plotly_chart(plot_relative_breadth(breadth_df), width="stretch")
             
             st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("##### Relative A/D Ratio")
+            st.markdown('<p style="color: #888888; font-size: 0.85rem;">Multi-timeframe ADR momentum. Blends daily change with 2/3/5-day smoothed composites. Green = Positive Momentum | Red = Negative Momentum</p>', unsafe_allow_html=True)
+            st.plotly_chart(plot_rel_ad_ratio(breadth_df), width="stretch")
+            
+            st.markdown("<br>", unsafe_allow_html=True)
             st.markdown("##### Custom Breadth Oscillator")
             st.markdown('<p style="color: #888888; font-size: 0.85rem;">EMA Smoothed Signal. Green = Oversold | Red = Overbought</p>', unsafe_allow_html=True)
             st.plotly_chart(plot_custom_breadth(breadth_df), width="stretch")
@@ -882,7 +938,8 @@ def main():
             display_df['ADR_MA10'] = display_df['ADR_MA10'].round(3)
             display_df['Custom_Breadth'] = display_df['Custom_Breadth'].round(3)
             display_df['Relative_Breadth'] = display_df['Relative_Breadth'].round(3)
-            display_df.columns = ['Date', 'Advances', 'Declines', 'Unchanged', 'Total', 'Net Advances', 'A/D Ratio', 'A/D Line', 'ADR MA (10)', 'Custom Breadth', 'Relative Breadth']
+            display_df['Rel_AD_Ratio'] = display_df['Rel_AD_Ratio'].round(4)
+            display_df.columns = ['Date', 'Advances', 'Declines', 'Unchanged', 'Total', 'Net Advances', 'A/D Ratio', 'A/D Line', 'ADR MA (10)', 'Custom Breadth', 'Relative Breadth', 'Rel A/D Ratio']
             
             st.dataframe(display_df, width="stretch", hide_index=True, height=400)
             
