@@ -1,4 +1,7 @@
-streamlit>=1.50.0
+# Pinned, as in the rest of the @thebullishvalue family: ui/theme.css styles
+# Streamlit's own DOM (data-testid hooks, st.navigation, st.container(key=...),
+# st.segmented_control), so the interface is verified against this exact version.
+streamlit==1.52.2
 pandas>=2.1.0
 numpy>=1.24.0
 yfinance>=0.2.54

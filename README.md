@@ -1,6 +1,6 @@
 # MARKET BREADTH
 
-**Advance-Decline Intelligence | Hemrek Capital**
+**विस्तार · Advance–Decline Breadth | @thebullishvalue**
 
 Reads an index's breadth cycle with the Aarambh oscillators and answers three questions, in this order:
 
@@ -27,24 +27,35 @@ Python 3.10+.
 
 ---
 
-## The page
+## The interface
 
-**Top (always visible)**
-- **Breadth is …**: the zone, the Relative Breadth value and what the zone means.
-- **What this has meant for the index**: Better than normal / About normal / Worse than normal / Too few cases, with the figures behind it.
-- **The reading**: where breadth is (including how unusual today's level is and any line crossed in the last two weeks), which way it is moving, whether momentum agrees, the latest session, and the longer A/D-line trend.
-- **What would change it**: the next decisive moves, their distance in oscillator units, and what followed them before.
+The interface is the @thebullishvalue family's (Tattva, Arthagati, Pragyam). Its UI layer (`ui/theme.css`, `ui/theme.py`, `ui/components.py`, `ui/format.py`) is adopted whole from Arthagati, so Breadth reads as one more instrument from the same terminal:
 
-**Tabs**
+- **"Graphite" design language:** Inter for prose, JetBrains Mono for every figure.
+- **Semantic colour only:** green is long, red is short, amber is caution, cobalt is the system.
+- **Flat panels**, with **Paper (light)** and **Slate (dark)** appearances. The light theme is a token swap, not a second stylesheet.
 
-| Tab | Question it answers |
-|---|---|
-| Breadth Cycle | How did we get here? Index shaded by zone, Relative and Custom Breadth with the zone lines, Relative A/D Ratio, daily A/D ratio, A/D line with its 50-session average |
-| What History Says | How reliable is the reading? Results by zone, by line crossing, and every oversold episode |
-| Sectors | Where is breadth coming from? The same oscillator per sector, a weekly sector heatmap, and stock drill-down |
-| Data & Method | What is this based on? Coverage, sources, oscillator definitions, daily figures with CSV export |
+**Shell (identical on every page):** ticker tape (the index and every sector's equal-weighted level) → command bar (instrument · zone, index level and change, Relative Breadth, record, last crossing, window, as-of, freshness chip) → notice rail (caveats such as substitute constituents, no index price or missing prices).
 
-Sidebar: market, **as of** date (read breadth as it stood on any past day), chart period, and how much history to judge against (3 / 5 / 10 years).
+**Rail:** brand → Market (universe, index) → Record (history to judge against, as-of date) → Session (Run, Refresh data, Start over) → Appearance. Global controls live in the rail; the chart window lives in the header of the chart it reframes.
+
+**Pages.** Each follows the house reading order: TRUST → ANCHOR → STATE → DETAIL → EVENTS.
+
+| Group | Page | Contents |
+|---|---|---|
+| Engine | **Breadth Engine** (leads) | The Read (state, record, five evidence rows) · Breadth Oscillators (Relative & Custom Breadth with the index on the second axis, Relative A/D Ratio, A/D ratio, A/D line) · Window Statistics · The Reading · Crossing Log |
+| Engine | Record | Zone Record cards · By Zone · By Crossing · Oversold Episodes |
+| Engine | Sectors | Sector Zones · weekly sector heatmap · Sector Readings · Constituents |
+| System | Data | Coverage · Daily Breadth with CSV export |
+| System | Method | Counting · The Oscillators · Reads · The Record — rendered from the engine's own constants |
+
+The Read follows Tattva's anatomy:
+
+1. One statement: the Relative Breadth zone.
+2. Whether that zone's record in this index supports leaning on it (better / about / worse than normal, or no record).
+3. Five evidence rows: Relative Breadth, direction, momentum, the latest session and the breadth trend. Each bar places its reading in its own history. Evidence is shown, never added into a score.
+
+**Colour carries a claim.** Green marks the oversold zone, the reading whose record has mattered. Overbought has no record of mattering, so it is drawn in neutral slate rather than a warning colour.
 
 ---
 
@@ -111,7 +122,12 @@ Caching: constituents 1 hour, prices 5 minutes. Failures are never cached.
 
 | Path | Purpose |
 |---|---|
-| `app.py` | Streamlit page |
+| `app.py` | Shell: rail, run, tape, command bar, notice rail, navigation, footer |
+| `config.py` | Product identity, chart windows, record options |
+| `ui/theme.css`, `ui/theme.py`, `ui/components.py`, `ui/format.py` | The family's shared UI layer (vendored from Arthagati) |
+| `ui/verdict.py` | The Read card's content, built from an analysis (pure) |
+| `ui/charts.py` | The engine stack and sector heatmap, in the family's chart grammar |
+| `ui/tabs/` | Landing, Breadth Engine, Record, Sectors, Data, Method |
 | `cli.py` | The same reading as text or JSON, optional CSV |
 | `breadth/indicators.py` | Oscillators, zone, direction, momentum, A/D-line trend, sector and stock snapshots |
 | `breadth/study.py` | Episodes, zone and crossing evidence, verdict |
@@ -119,9 +135,7 @@ Caching: constituents 1 hour, prices 5 minutes. Failures are never cached.
 | `breadth/pipeline.py` | `run()` / `build_analysis()`: everything in one call |
 | `breadth/universe.py` | Universes, constituents, sectors, index tickers |
 | `breadth/data.py` | Yahoo download, live-session append, currency inversion |
-| `breadth/charts.py` | Plotly figures |
-| `assets/style.css` | Hemrek design system |
-| `tests/` | 49 offline tests (network mocked, synthetic market generator) |
+| `tests/` | 55 offline tests (network mocked, synthetic market generator) |
 
 ```bash
 pip install -r requirements-dev.txt
@@ -147,10 +161,12 @@ CI (GitHub Actions) runs lint and tests on Python 3.10 and 3.13 on every push.
 
 ## Version
 
+**v3.1.0 (2026)**: The family interface. Adopted the shared UI layer of Tattva, Arthagati and Pragyam: the Graphite design system with Paper/Slate appearances, tape / command bar / notice rail shell, `st.navigation` pages in house reading order, Tattva's read card, panel-anchored chart windows, the institutional table, and the family landing page.
+
 **v3.0.0 (2026)**: Rebuilt around the Aarambh oscillators. The zone is the headline; direction, momentum and the A/D-line trend support it. Evidence uses only real-time information and is sized by episode. A plain-language reading with "what would change it" replaces the indicator dashboard. Sectors are read with the same oscillator. An as-of date allows historical replay.
 
 v2.0.0: Institutional indicator set (superseded; see the audit above). v1.9.0: Correctness audit.
 
 ---
 
-*© 2026 Hemrek Capital*
+*© 2026 Market Breadth · @thebullishvalue*

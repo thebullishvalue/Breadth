@@ -10,8 +10,15 @@ testpaths = ["tests"]
 filterwarnings = ["ignore::DeprecationWarning"]
 
 [tool.ruff.lint.per-file-ignores]
-# Embedded CSS/HTML strings
+# The family's shared UI layer, vendored from Arthagati/Tattva. Kept as close to
+# upstream as possible so it can be re-synced; not reformatted here.
+"ui/components.py" = ["E", "UP", "B", "I"]
+"ui/theme.py" = ["E", "UP", "B", "I"]
+"ui/format.py" = ["E", "UP", "B", "I"]
+"ui/tabs/*.py" = ["E501"]
+"ui/verdict.py" = ["E501"]
+"ui/charts.py" = ["E501"]
 "app.py" = ["E501"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["breadth", "cli", "synthetic"]
+known-first-party = ["breadth", "cli", "synthetic", "ui", "config"]

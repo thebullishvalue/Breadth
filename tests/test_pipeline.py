@@ -3,7 +3,7 @@ import datetime
 import numpy as np
 import pandas as pd
 
-from breadth import build_analysis, charts, history_start
+from breadth import build_analysis, history_start
 from breadth import data as bd
 from synthetic import make_market
 
@@ -44,17 +44,6 @@ def test_history_start():
     assert history_start(datetime.date(2026, 6, 1), datetime.date(2026, 11, 20), 3) == datetime.date(2023, 11, 20)
     assert history_start(datetime.date(2020, 1, 1), datetime.date(2026, 11, 20), 1) == datetime.date(2020, 1, 1)
     assert history_start(datetime.date(2028, 2, 29), datetime.date(2028, 2, 29), 1) == datetime.date(2027, 2, 28)
-
-
-def test_charts_build_with_zone_shapes():
-    uni, data = make_market()
-    a = build_analysis(uni, data, datetime.date(2026, 3, 1), datetime.date(2026, 11, 20))
-    cycle = charts.plot_cycle(a.view, a.price, "TEST")
-    shaded = sum(1 for _, _, z in charts._zone_segments(a.view["Zone"]) if z != "NEUTRAL")
-    assert len(cycle.layout.shapes) == shaded + 6       # zone shading + 2 bands + 4 reference lines
-    for fig in (charts.plot_ad_ratio(a.view), charts.plot_ad_line(a.view),
-                charts.plot_sector_heatmap(a.sector_osc, a.view.index[0], a.asof)):
-        assert fig.data
 
 
 def test_extract_field_multiindex_and_single():

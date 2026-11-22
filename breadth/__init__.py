@@ -3,4 +3,4 @@
 from .pipeline import Analysis, build_analysis, history_start, run
 
 __all__ = ["Analysis", "build_analysis", "history_start", "run"]
-__version__ = "3.0.0"
+__version__ = "3.1.0"
