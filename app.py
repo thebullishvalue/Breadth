@@ -1,21 +1,22 @@
 """
 MARKET BREADTH - Advance/Decline Intelligence | A Hemrek Capital Product
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Streamlit front-end. Computation lives in ``engine.py``; charts in ``charts.py``.
+Streamlit front-end. All analytics live in the ``breadth`` package.
 """
 
 import datetime
 import re
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
-import charts
-import engine
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE CONFIGURATION
-# ══════════════════════════════════════════════════════════════════════════════
+from breadth import __version__, build_analysis, charts, history_start
+from breadth import indicators as ind
+from breadth import universe as uv
+from breadth.data import download_market_data
+from breadth.signals import COOLDOWN, SIGNAL_BY_KEY, SIGNALS, recent_events
+from breadth.study import HORIZONS, MIN_SAMPLE
 
 st.set_page_config(
     page_title="MARKET BREADTH | Advance-Decline Analytics",
@@ -24,211 +25,69 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-VERSION = "v1.9.0"
+VERSION = f"v{__version__}"
 PRODUCT_NAME = "Market Breadth"
 COMPANY = "Hemrek Capital"
 IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+STUDY_YEARS = {"1 year": 1, "3 years": 3, "5 years": 5, "10 years": 10}
+
+CSS = (Path(__file__).parent / "assets" / "style.css").read_text(encoding="utf-8")
+st.markdown(f"<style>{CSS}</style>", unsafe_allow_html=True)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PRAGYAM/NIRNAY DESIGN SYSTEM CSS
-# ══════════════════════════════════════════════════════════════════════════════
-
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-
-    :root {
-        --primary-color: #FFC300;
-        --primary-rgb: 255, 195, 0;
-        --background-color: #0F0F0F;
-        --secondary-background-color: #1A1A1A;
-        --bg-card: #1A1A1A;
-        --bg-elevated: #2A2A2A;
-        --text-primary: #EAEAEA;
-        --text-secondary: #EAEAEA;
-        --text-muted: #888888;
-        --border-color: #2A2A2A;
-        --border-light: #3A3A3A;
-        --success-green: #10b981;
-        --danger-red: #ef4444;
-        --warning-amber: #f59e0b;
-        --info-cyan: #06b6d4;
-        --neutral: #888888;
-    }
-
-    * { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
-    .main, [data-testid="stSidebar"] { background-color: var(--background-color); color: var(--text-primary); }
-    .stApp > header { background-color: transparent; }
-    #MainMenu {visibility: hidden;} footer {visibility: hidden;}
-    .block-container { padding-top: 3.5rem; max-width: 95%; padding-left: 2rem; padding-right: 2rem; }
-
-    /* Sidebar toggle button - always visible */
-    [data-testid="collapsedControl"] {
-        display: flex !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        background-color: var(--secondary-background-color) !important;
-        border: 2px solid var(--primary-color) !important;
-        border-radius: 8px !important;
-        padding: 10px !important;
-        margin: 12px !important;
-        box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.4) !important;
-        z-index: 999999 !important;
-        position: fixed !important;
-        top: 14px !important;
-        left: 14px !important;
-        width: 40px !important;
-        height: 40px !important;
-        align-items: center !important;
-        justify-content: center !important;
-    }
-
-    [data-testid="collapsedControl"]:hover {
-        background-color: rgba(var(--primary-rgb), 0.2) !important;
-        box-shadow: 0 0 20px rgba(var(--primary-rgb), 0.6) !important;
-        transform: scale(1.05);
-    }
-
-    [data-testid="collapsedControl"] svg {
-        stroke: var(--primary-color) !important;
-        width: 20px !important;
-        height: 20px !important;
-    }
-
-    [data-testid="stSidebar"] button[kind="header"] {
-        background-color: transparent !important;
-        border: none !important;
-    }
-
-    [data-testid="stSidebar"] button[kind="header"] svg {
-        stroke: var(--primary-color) !important;
-    }
-
-    button[kind="header"] { z-index: 999999 !important; }
-
-    .premium-header {
-        background: var(--secondary-background-color);
-        padding: 1.25rem 2rem;
-        border-radius: 16px;
-        margin-bottom: 1.5rem;
-        box-shadow: 0 0 20px rgba(var(--primary-rgb), 0.1);
-        border: 1px solid var(--border-color);
-        position: relative;
-        overflow: hidden;
-        margin-top: 1rem;
-    }
-
-    .premium-header::before {
-        content: '';
-        position: absolute;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: radial-gradient(circle at 20% 50%, rgba(var(--primary-rgb),0.08) 0%, transparent 50%);
-        pointer-events: none;
-    }
-
-    .premium-header h1 { margin: 0; font-size: 2rem; font-weight: 700; color: var(--text-primary); letter-spacing: -0.50px; position: relative; }
-    .premium-header .tagline { color: var(--text-muted); font-size: 0.9rem; margin-top: 0.25rem; font-weight: 400; position: relative; }
-
-    .metric-card {
-        background-color: var(--bg-card);
-        padding: 1.25rem;
-        border-radius: 12px;
-        border: 1px solid var(--border-color);
-        box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08);
-        margin-bottom: 0.5rem;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        position: relative;
-        overflow: hidden;
-    }
-
-    .metric-card:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0,0,0,0.3); border-color: var(--border-light); }
-    .metric-card h4 { color: var(--text-muted); font-size: 0.75rem; margin-bottom: 0.5rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
-    .metric-card h2 { color: var(--text-primary); font-size: 1.75rem; font-weight: 700; margin: 0; line-height: 1; }
-    .metric-card .sub-metric { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; font-weight: 500; }
-    .metric-card.success h2 { color: var(--success-green); }
-    .metric-card.danger h2 { color: var(--danger-red); }
-    .metric-card.warning h2 { color: var(--warning-amber); }
-    .metric-card.info h2 { color: var(--info-cyan); }
-    .metric-card.neutral h2 { color: var(--neutral); }
-    .metric-card.primary h2 { color: var(--primary-color); }
-
-    .signal-card {
-        background-color: var(--bg-card);
-        padding: 1.5rem;
-        border-radius: 12px;
-        border: 1px solid var(--border-color);
-        box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08);
-        margin-bottom: 1rem;
-        position: relative;
-        overflow: hidden;
-    }
-
-    .signal-card::before { content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%; }
-    .signal-card.buy::before { background: var(--success-green); }
-    .signal-card.sell::before { background: var(--danger-red); }
-
-    .info-box { background: var(--secondary-background-color); border: 1px solid var(--border-color); border-left: 0px solid var(--primary-color); padding: 1.25rem; border-radius: 12px; margin: 0.5rem 0; box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.08); }
-    .info-box h4 { color: var(--primary-color); margin: 0 0 0.5rem 0; font-size: 1rem; font-weight: 700; }
-    .info-box p { color: var(--text-muted); margin: 0; font-size: 0.9rem; line-height: 1.6; }
-
-    .stButton>button { border: 2px solid var(--primary-color); background: transparent; color: var(--primary-color); font-weight: 700; border-radius: 12px; padding: 0.75rem 2rem; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); text-transform: uppercase; letter-spacing: 0.5px; width: 100%; }
-    .stButton>button:hover { box-shadow: 0 0 25px rgba(var(--primary-rgb), 0.6); background: var(--primary-color); color: #1A1A1A; transform: translateY(-2px); }
-    .stButton>button:active { transform: translateY(0); }
-
-    .stTabs [data-baseweb="tab-list"] { gap: 24px; background: transparent; }
-    .stTabs [data-baseweb="tab"] { color: var(--text-muted); border-bottom: 2px solid transparent; transition: color 0.3s, border-bottom 0.3s; background: transparent; font-weight: 600; }
-    .stTabs [aria-selected="true"] { color: var(--primary-color); border-bottom: 2px solid var(--primary-color); background: transparent !important; }
-
-    .stPlotlyChart { border-radius: 12px; background-color: var(--secondary-background-color); padding: 10px; border: 1px solid var(--border-color); box-shadow: 0 0 25px rgba(var(--primary-rgb), 0.1); margin-bottom: 1.5rem; }
-    .stDataFrame { border-radius: 12px; background-color: var(--secondary-background-color); border: 1px solid var(--border-color); }
-    .section-divider { height: 1px; background: linear-gradient(90deg, transparent 0%, var(--border-color) 50%, transparent 100%); margin: 1.5rem 0; }
-
-    .sidebar-title { font-size: 0.75rem; font-weight: 700; color: var(--primary-color); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.75rem; }
-
-    [data-testid="stSidebar"] { background: var(--secondary-background-color); border-right: 1px solid var(--border-color); }
-
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: var(--background-color); }
-    ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
-</style>
-""", unsafe_allow_html=True)
-
-# ══════════════════════════════════════════════════════════════════════════════
-# CACHED DATA ACCESS
-# Failures raise inside the cached functions so they are never cached.
+# CACHED DATA ACCESS (failures raise inside, so they are never cached)
 # ══════════════════════════════════════════════════════════════════════════════
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_constituents(universe: str, index: str):
-    if universe == "India Indexes":
-        return engine.get_india_constituents(index)
-    if universe == "US Indexes":
-        return engine.get_us_constituents(index)
-    if universe == "Commodities":
-        return engine.get_commodity_list()
-    return engine.get_currency_list()
+def load_universe(kind: str, index: str):
+    return uv.resolve_universe(kind, index)
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def load_close_matrix(tickers: tuple, start_date: datetime.date, end_date: datetime.date):
-    return engine.download_close_matrix(list(tickers), start_date, end_date)
+def load_market_data(tickers: tuple, start: datetime.date, end: datetime.date, benchmark, invert: tuple):
+    return download_market_data(list(tickers), start, end, benchmark=benchmark, invert=list(invert))
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SMALL RENDER HELPERS
+# ══════════════════════════════════════════════════════════════════════════════
 
 def metric_card(title: str, value: str, sub: str, css: str, size: str = "1.6rem") -> str:
     return (f'<div class="metric-card {css}"><h4>{title}</h4>'
             f'<h2 style="font-size: {size};">{value}</h2><div class="sub-metric">{sub}</div></div>')
 
 
-def chart_section(title: str, caption: str, fig) -> None:
+def caption(text: str) -> None:
+    st.markdown(f'<p class="chart-caption">{text}</p>', unsafe_allow_html=True)
+
+
+def chart(title: str, text: str, fig) -> None:
     st.markdown(f"##### {title}")
-    st.markdown(f'<p style="color: #888888; font-size: 0.85rem;">{caption}</p>', unsafe_allow_html=True)
+    caption(text)
     st.plotly_chart(fig, width="stretch")
-    st.markdown("<br>", unsafe_allow_html=True)
+
+
+def pill(text: str, css: str) -> str:
+    return f'<span class="regime-pill {css}">{text}</span>'
+
+
+def md_bold(text: str) -> str:
+    return re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
+
+
+def fmt(v, spec: str, na: str = "n/a") -> str:
+    return format(v, spec) if pd.notna(v) else na
+
+
+def sign_css(v, threshold: float = 0.0) -> str:
+    if pd.isna(v):
+        return "neutral"
+    return "success" if v > threshold else "danger" if v < threshold else "neutral"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MAIN APPLICATION
+# SIDEBAR & PIPELINE
 # ══════════════════════════════════════════════════════════════════════════════
 
 def render_sidebar():
@@ -243,26 +102,22 @@ def render_sidebar():
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
         st.markdown('<div class="sidebar-title">🎯 Universe Selection</div>', unsafe_allow_html=True)
-        universe = st.selectbox(
-            "Analysis Universe", engine.ANALYSIS_UNIVERSE_OPTIONS, index=0,
-            help="Choose between India Index Constituents, US Indexes, Commodities or Currencies.",
-        )
-        if universe == "India Indexes":
-            index = st.selectbox("Select Index", engine.INDIA_INDEX_LIST,
-                                 index=engine.INDIA_INDEX_LIST.index("NIFTY 500"),
-                                 help="Select a specific NIFTY index for constituent analysis.")
-        elif universe == "US Indexes":
-            index = st.selectbox("Select Index", engine.US_INDEX_LIST, index=0,
-                                 help="Select the US index for constituent analysis.")
-        elif universe == "Commodities":
-            index = "Commodities"
+        kind = st.selectbox("Analysis Universe", uv.UNIVERSE_KINDS, index=0,
+                            help="Index constituents (India/US), commodity futures, or currencies measured vs USD.")
+        options = uv.index_options(kind)
+        if len(options) > 1:
+            default = options.index("NIFTY 500") if "NIFTY 500" in options else 0
+            index = st.selectbox("Select Index", options, index=default)
         else:
-            index = "Currencies"
+            index = options[0]
 
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        st.markdown('<div class="sidebar-title">📅 Date Range</div>', unsafe_allow_html=True)
-        start_date = st.date_input("Start Date", today - datetime.timedelta(days=100), max_value=today)
+        st.markdown('<div class="sidebar-title">📅 Display Window</div>', unsafe_allow_html=True)
+        start_date = st.date_input("Start Date", today - datetime.timedelta(days=180), max_value=today)
         end_date = st.date_input("End Date", today, max_value=today)
+        study_label = st.selectbox(
+            "Signal study history", list(STUDY_YEARS), index=1,
+            help="How far back the forward-return study looks. Longer is more robust but slower to download.")
 
         st.markdown("<br>", unsafe_allow_html=True)
         run_btn = st.button("◈ RUN ANALYSIS", type="primary")
@@ -273,216 +128,332 @@ def render_sidebar():
             <p style='font-size: 0.8rem; margin: 0; color: var(--text-muted); line-height: 1.5;'>
                 <strong>Version:</strong> {VERSION}<br>
                 <strong>Data:</strong> Yahoo Finance · NSE · Wikipedia<br>
-                <strong>Universe:</strong> {universe} – {index}
+                <strong>Universe:</strong> {kind} – {index}
             </p>
         </div>
         """, unsafe_allow_html=True)
-    return universe, index, start_date, end_date, run_btn
+    return kind, index, start_date, end_date, STUDY_YEARS[study_label], run_btn
 
 
-def run_pipeline(universe, index, start_date, end_date):
-    """Fetch + compute inside a status panel. Returns (breadth_df, movers_df) or None."""
-    status_container = st.empty()
-    with status_container.status("📡 Fetching market data...", expanded=True) as terminal:
-        terminal.write(f"➤ Requesting {universe} universe ({index})...")
+def run_pipeline(kind, index, start_date, end_date, study_years):
+    box = st.empty()
+    with box.status("📡 Fetching market data...", expanded=True) as status:
+        status.write(f"➤ Resolving {index} constituents...")
         try:
-            tickers, msg, is_fallback = load_constituents(universe, index)
+            universe = load_universe(kind, index)
         except Exception as e:
-            terminal.update(label="❌ Constituent fetch failed", state="error")
+            status.update(label="❌ Constituent fetch failed", state="error")
             st.error(f"Could not obtain constituents for {index}: {e}")
             return None
-        terminal.write(f"&nbsp;&nbsp;&nbsp;↳ {msg}")
-        if is_fallback:
-            terminal.warning("Built-in fallback tickers in use — results do not represent the selected index.")
+        status.write(f"&nbsp;&nbsp;&nbsp;↳ {universe.source}")
+        if universe.is_fallback:
+            status.warning("Fallback constituent list in use. Results may not represent the selected index.")
 
-        terminal.write(f"➤ Downloading price data ({len(tickers)} symbols)...")
+        hist_start = history_start(start_date, end_date, study_years)
+        status.write(f"➤ Downloading {len(universe.tickers)} symbols from {hist_start:%d %b %Y} (+ warm-up)...")
         try:
-            close_df, dl_msg = load_close_matrix(tuple(tickers), start_date, end_date)
+            data = load_market_data(tuple(universe.tickers), hist_start, end_date,
+                                    universe.benchmark, tuple(universe.invert))
         except Exception as e:
-            terminal.update(label="❌ Price download failed", state="error")
+            status.update(label="❌ Price download failed", state="error")
             st.error(f"Price download failed: {e}")
             return None
-        terminal.write(f"&nbsp;&nbsp;&nbsp;↳ {dl_msg}")
-        missing = len(tickers) - close_df.shape[1]
-        if missing > 0:
-            terminal.write(f"&nbsp;&nbsp;&nbsp;↳ {missing} symbol(s) returned no data and were skipped")
-        if close_df.shape[1] < 20:
-            terminal.warning(f"Only {close_df.shape[1]} assets returned usable data — results may be noisy.")
+        status.write(f"&nbsp;&nbsp;&nbsp;↳ {data.close.shape[1]} priced, {len(data.missing)} missing, "
+                     f"{len(data.close)} sessions")
 
-        terminal.write("➤ Computing breadth indicators...")
-        breadth_df, movers_df = engine.compute_timeseries(
-            close_df, pd.Timestamp(start_date), pd.Timestamp(end_date))
-        if breadth_df is None or breadth_df.empty:
-            terminal.update(label="❌ No sessions in range", state="error")
-            st.error("No trading sessions with sufficient coverage in the selected range "
+        status.write("➤ Computing breadth panel, signals and studies...")
+        analysis = build_analysis(universe, data, start_date, end_date)
+        if analysis is None:
+            status.update(label="❌ No usable sessions", state="error")
+            st.error("No sessions with sufficient coverage in the selected window "
                      "(weekend, holiday, or data not yet available).")
             return None
-    status_container.empty()
-    return breadth_df, movers_df
+    box.empty()
+    return analysis
 
 
-def render_results(universe, index, start_date, end_date, breadth_df, movers_df):
-    unit = "Stocks" if universe in ("India Indexes", "US Indexes") else "Assets"
-    last_row = breadth_df.iloc[-1]
-    last_date = last_row["Date"].strftime("%d %b %Y")
-    adr = float(last_row["AD_Ratio"])
-    sentiment, s_color = engine.classify_adr(adr)
-    net = int(last_row["Net_Advances"])
-    n_color = "success" if net > 0 else "danger" if net < 0 else "neutral"
+# ══════════════════════════════════════════════════════════════════════════════
+# RESULTS
+# ══════════════════════════════════════════════════════════════════════════════
 
-    st.markdown(f"### Breadth Analysis: {index}")
-    cols = st.columns(5)
+def reference_label(a) -> str:
+    return a.data.benchmark_ticker if a.price_source == "benchmark" else "EW composite"
+
+
+def render_header(a):
+    last, panel, u = a.last, a.panel, a.universe
+    prev5 = panel.iloc[-6] if len(panel) > 5 else panel.iloc[0]
+    st.markdown(f"### {u.name} · Breadth Monitor")
+    caption(f"As of {a.asof:%d %b %Y} · reference series: {reference_label(a)} · "
+            f"{a.data.close.shape[1]}/{len(u.tickers)} {u.unit.lower()} priced · "
+            f"session coverage {last['Coverage']:.0f}%")
+
+    pills = [pill(f"HEALTH: {last['Regime']}", ind.regime_css(last["Regime"])),
+             pill(f"TACTICAL: {last['Tactical']}",
+                  {"OVERSOLD": "success", "OVERBOUGHT": "danger"}.get(last["Tactical"], "neutral"))]
+    for key, _, ago in recent_events(a.events):
+        sd = SIGNAL_BY_KEY[key]
+        when = "today" if ago == 0 else f"{ago}d ago"
+        pills.append(pill(f"{sd.label.upper()} · {when}", "success" if sd.bias == "bullish" else "danger"))
+    st.markdown(f'<div class="regime-banner">{"".join(pills)}</div>', unsafe_allow_html=True)
+
+    adr = float(last["AD_Ratio"])
+    sentiment, s_css = ind.classify_adr(adr)
+    hs = last["Health_Score"]
     cards = [
-        metric_card("Snapshot", last_date, "Trading Day", "neutral", "1.5rem"),
-        metric_card("A/D Ratio", f"{adr:.2f}", sentiment, s_color),
-        metric_card("Advances", f"{int(last_row['Advances'])}", f"{unit} Gaining", "success"),
-        metric_card("Declines", f"{int(last_row['Declines'])}", f"{unit} Falling", "danger"),
-        metric_card("Net Advances", f"{net:+d}", "Breadth Momentum", n_color),
+        metric_card("Health Score", fmt(hs, ".0f"),
+                    f"{fmt(hs - prev5['Health_Score'], '+.1f')} vs 5 sessions ago", ind.regime_css(last["Regime"])),
+        metric_card("% > 50-DMA", fmt(last["Pct_Above_50"], ".0f") + "%", "Intermediate trend",
+                    sign_css(last["Pct_Above_50"], 50)),
+        metric_card("% > 200-DMA", fmt(last["Pct_Above_200"], ".0f") + "%", "Long-term trend",
+                    sign_css(last["Pct_Above_200"], 50)),
+        metric_card("Net New Highs", fmt(last["NH_NL"], "+.0f"),
+                    f"{fmt(last['New_Highs'], '.0f')} highs / {fmt(last['New_Lows'], '.0f')} lows",
+                    sign_css(last["NH_NL"])),
+        metric_card("McClellan Osc", fmt(last["McClellan_Osc"], "+.0f"), "Breadth momentum",
+                    sign_css(last["McClellan_Osc"])),
+        metric_card("A/D Ratio", f"{adr:.2f}",
+                    f"{int(last['Advances'])} adv / {int(last['Declines'])} dec · {sentiment}", s_css),
     ]
-    for col, html in zip(cols, cards, strict=True):
+    for col, html in zip(st.columns(len(cards)), cards, strict=True):
         col.markdown(html, unsafe_allow_html=True)
-    st.markdown("<br>", unsafe_allow_html=True)
 
-    tab1, tab2, tab3 = st.tabs(["**📈 Time Series Analytics**", "**📋 Raw Data Matrix**",
-                                "**🔎 Last Session Movers**"])
+    items = "".join(f"<li>{md_bold(n)}</li>" for n in a.note)
+    st.markdown(f'<div class="desk-note"><h4>Desk Note</h4><ul>{items}</ul></div>', unsafe_allow_html=True)
 
-    with tab1:
-        chart_section("Relative Breadth Oscillator",
-                      "Fibonacci Sequence MA Smoothing. Green = Oversold | Red = Overbought",
-                      charts.plot_relative_breadth(breadth_df))
-        chart_section("Relative A/D Ratio",
-                      "Multi-timeframe ADR momentum. Blends daily change with 2/3/5-day smoothed composites. "
-                      "Green = Positive Momentum | Red = Negative Momentum",
-                      charts.plot_rel_ad_ratio(breadth_df))
-        chart_section("Custom Breadth Oscillator",
-                      "EMA Smoothed Signal. Green = Oversold | Red = Overbought",
-                      charts.plot_custom_breadth(breadth_df))
-        chart_section("Advance/Decline Ratio (ADR) Oscillator",
-                      "Raw ADR Metric. Green = Bullish Skew | Red = Bearish Skew",
-                      charts.plot_ad_ratio(breadth_df))
-        chart_section("Cumulative Advance/Decline Line (ADL)",
-                      "Summation of net advancing constituents from the start of the selected window.",
-                      charts.plot_ad_line(breadth_df))
 
-    with tab2:
-        st.markdown(f"##### Historical Breadth Matrix ({index})")
-        display_df = breadth_df.copy()
-        display_df["Date"] = display_df["Date"].dt.strftime("%Y-%m-%d")
-        display_df = display_df.round({"AD_Ratio": 3, "ADR_MA10": 3, "Custom_Breadth": 3,
-                                       "Relative_Breadth": 3, "Rel_AD_Ratio": 4})
-        display_df = display_df.rename(columns={
-            "Net_Advances": "Net Advances", "AD_Ratio": "A/D Ratio", "AD_Line": "A/D Line",
-            "ADR_MA10": "ADR MA (10)", "Custom_Breadth": "Custom Breadth",
-            "Relative_Breadth": "Relative Breadth", "Rel_AD_Ratio": "Rel A/D Ratio",
+def tab_overview(a):
+    chart("Reference Series vs Structural Health",
+          "Top: benchmark (or equal-weight composite) with breadth signals (▲ bullish, ▼ bearish). Bottom: Health "
+          "Score, the average of % above 50-DMA, % above 200-DMA and a net-new-highs score. Bands: ≥70 Strong · 55–70 Healthy · "
+          "45–55 Neutral · 30–45 Weak · <30 Washout.",
+          charts.plot_overview(a.view, a.price, a.events, reference_label(a)))
+
+
+def tab_participation(a):
+    chart("Trend Participation",
+          "Share of constituents trading above their own 20/50/200-session moving averages. "
+          "Above 80% is broad strength (often stretched); below 20% is capitulation territory.",
+          charts.plot_participation(a.view))
+    chart("52-Week Highs vs Lows",
+          "Constituents closing at a 52-week high (green) or low (red). Expanding new highs confirm a trend; "
+          "rising new lows during an index advance warns of narrowing leadership.",
+          charts.plot_highs_lows(a.view))
+
+
+def tab_momentum(a):
+    chart("McClellan Oscillator & Summation Index",
+          "Ratio-adjusted: EMA(10%) − EMA(5%) of 1000·(A−D)/(A+D), so readings are comparable across universe sizes. "
+          "The Summation Index is accumulated from the start of the display window.",
+          charts.plot_mcclellan(a.view))
+    if a.data.has_volume and a.view["UpDown_Value_Ratio"].notna().any():
+        chart("Up/Down Traded Value & Arms Index",
+              "Traded value (price × volume) in advancing vs declining constituents. TRIN = (A/D) ÷ (up value / "
+              "down value); below 1 means money is concentrated in advancers.",
+              charts.plot_volume_breadth(a.view))
+    else:
+        st.info("No volume data for this universe (e.g. spot FX), so value-weighted breadth is unavailable.")
+    chart("Cumulative Advance/Decline Line",
+          "Running total of net advances from the start of the display window.",
+          charts.plot_ad_line(a.view))
+
+
+def tab_oscillators(a):
+    chart("Relative Breadth Oscillator", "Fibonacci Sequence MA Smoothing. Green = Oversold | Red = Overbought",
+          charts.plot_relative_breadth(a.view))
+    chart("Relative A/D Ratio",
+          "Multi-timeframe ADR momentum. Blends daily change with 2/3/5-day smoothed composites. "
+          "Green = Positive Momentum | Red = Negative Momentum",
+          charts.plot_rel_ad_ratio(a.view))
+    chart("Custom Breadth Oscillator", "EMA Smoothed Signal. Green = Oversold | Red = Overbought",
+          charts.plot_custom_breadth(a.view))
+    chart("Advance/Decline Ratio (ADR) Oscillator", "Raw ADR Metric. Green = Bullish Skew | Red = Bearish Skew",
+          charts.plot_ad_ratio(a.view))
+
+
+def tab_sectors(a):
+    if a.sectors.empty:
+        st.info("No sector data available.")
+        return
+    st.markdown(f"##### Sector Breadth on {a.asof:%d %b %Y}")
+    caption("Sorted by participation. EW returns are equal-weighted averages of members.")
+    st.dataframe(
+        a.sectors, width="stretch", hide_index=True,
+        column_config={
+            "Pct_Above_50": st.column_config.ProgressColumn("% > 50-DMA", min_value=0, max_value=100, format="%.0f%%"),
+            "Pct_Above_200": st.column_config.ProgressColumn("% > 200-DMA", min_value=0, max_value=100,
+                                                             format="%.0f%%"),
+            "EW_Ret_21D_%": st.column_config.NumberColumn("EW 21D %", format="%+.2f%%"),
+            "EW_Chg_1D_%": st.column_config.NumberColumn("EW 1D %", format="%+.2f%%"),
+        },
+    )
+    if not a.sector_history.empty and a.sector_history.shape[1] > 1:
+        chart("Sector Participation Rotation",
+              "Weekly % of each sector's members above their 50-DMA. Read across for rotation, down for breadth of "
+              "the move.", charts.plot_sector_heatmap(a.sector_history))
+
+
+def tab_study(a):
+    st.markdown("##### Signal Forward-Return Study")
+    caption(f"Reference: {reference_label(a)} · {a.study_start:%d %b %Y} → {a.asof:%d %b %Y} ({len(a.panel)} "
+            f"sessions). Events within {COOLDOWN} sessions of a previous one are ignored. <strong>Edge</strong> = "
+            f"average forward return after the signal minus the average over all sessions. Rows with fewer than "
+            f"{MIN_SAMPLE} events are flagged. Constituents are today's members, so history carries survivorship "
+            f"bias, and nearby events have overlapping forward windows. Treat this as evidence, not proof.")
+    metric = st.radio("Metric", ["Avg", "Hit", "Edge"], horizontal=True,
+                      captions=["Mean forward return", "% of events with a positive return", "Mean minus baseline"])
+    t = a.event_table
+    cols = ["Signal", "Bias", "Events", "Last"] + [f"{metric} {h}D %" for h in HORIZONS] + ["Low Sample"]
+    fmt_str = "%.0f%%" if metric == "Hit" else "%+.2f%%"
+    st.dataframe(t[cols], width="stretch", hide_index=True, column_config={
+        **{f"{metric} {h}D %": st.column_config.NumberColumn(f"{h}D", format=fmt_str) for h in HORIZONS},
+        "Low Sample": st.column_config.CheckboxColumn("Low n"),
+    })
+
+    st.markdown("##### Forward Returns by Health Regime")
+    caption("Average 21-session forward return of the reference series, grouped by the regime on the entry day.")
+    c1, c2 = st.columns([3, 2])
+    with c1:
+        st.plotly_chart(charts.plot_regime_returns(a.regime_table), width="stretch")
+    with c2:
+        st.dataframe(a.regime_table, width="stretch", hide_index=True, column_config={
+            "Avg 21D %": st.column_config.NumberColumn(format="%+.2f%%"),
+            "Hit 21D %": st.column_config.NumberColumn(format="%.0f%%"),
         })
-        st.dataframe(display_df, width="stretch", hide_index=True, height=400)
 
-        export = breadth_df.copy()
-        export["Date"] = export["Date"].dt.strftime("%Y-%m-%d")
-        safe_name = re.sub(r"[^A-Za-z0-9]+", "_", index).strip("_")
-        st.download_button("📥 Export Matrix (CSV)", export.to_csv(index=False).encode("utf-8"),
-                           f"{safe_name}_breadth_{start_date}_{end_date}.csv", "text/csv")
+    with st.expander("Signal definitions"):
+        for s in SIGNALS:
+            st.markdown(f"- **{s.label}** ({s.bias}): {s.description}")
 
-    with tab3:
-        st.markdown(f"##### Constituent Moves on {last_date}")
-        if movers_df.empty:
-            st.info("Per-asset moves are unavailable for this session.")
-        else:
-            show = movers_df.copy()
-            if not show["Name"].astype(bool).any():
-                show = show.drop(columns="Name")
-            st.dataframe(
-                show, width="stretch", hide_index=True, height=400,
-                column_config={
-                    "Price": st.column_config.NumberColumn(format="%.4f"),
-                    "Change_%": st.column_config.NumberColumn("Change %", format="%+.2f%%"),
-                },
-            )
+
+def tab_constituents(a):
+    snap = a.snapshot
+    if snap.empty:
+        st.info("Per-asset data unavailable for this session.")
+        return
+    st.markdown(f"##### Constituents on {a.asof:%d %b %Y}")
+    sectors = sorted(snap["Sector"].unique())
+    pick = st.multiselect("Filter sectors", sectors, default=[]) if len(sectors) > 1 else []
+    view = snap[snap["Sector"].isin(pick)] if pick else snap
+    if not view["Name"].astype(bool).any():
+        view = view.drop(columns="Name")
+    st.dataframe(view, width="stretch", hide_index=True, height=520, column_config={
+        "Price": st.column_config.NumberColumn(format="%.4f"),
+        "Chg_1D_%": st.column_config.NumberColumn("1D %", format="%+.2f%%"),
+        "Ret_21D_%": st.column_config.NumberColumn("21D %", format="%+.2f%%"),
+        "From_52W_High_%": st.column_config.NumberColumn("vs 52W High", format="%+.1f%%"),
+        "Above_50DMA": st.column_config.CheckboxColumn("> 50DMA"),
+        "Above_200DMA": st.column_config.CheckboxColumn("> 200DMA"),
+        "New_High": st.column_config.CheckboxColumn("52W High"),
+        "New_Low": st.column_config.CheckboxColumn("52W Low"),
+    })
+
+
+def tab_data(a, start_date, end_date):
+    u, d = a.universe, a.data
+    st.markdown("##### Data Quality")
+    c = st.columns(4)
+    c[0].metric("Constituents requested", len(u.tickers))
+    c[1].metric("Priced", d.close.shape[1])
+    c[2].metric("Avg session coverage", f"{a.view['Coverage'].mean():.0f}%")
+    c[3].metric("Study sessions", len(a.panel))
+    lines = [
+        f"- **Constituent source:** {u.source}",
+        f"- **Reference series:** {reference_label(a) if a.price_source == 'benchmark' else 'equal-weight composite of constituents'}",
+        "- **Survivorship:** history uses current constituents; delisted or removed names are absent.",
+    ]
+    if u.invert:
+        lines.append("- **Orientation:** USD-quoted pairs are inverted so an advance means the currency rose vs USD.")
+    st.markdown("\n".join(lines))
+    if d.missing:
+        with st.expander(f"{len(d.missing)} symbols returned no price data"):
+            st.write(", ".join(d.missing))
+
+    st.markdown(f"##### Breadth Matrix ({u.name})")
+    out = a.view.reset_index()
+    out["Date"] = out["Date"].dt.strftime("%Y-%m-%d")
+    st.dataframe(out.round(4), width="stretch", hide_index=True, height=400)
+    safe = re.sub(r"[^A-Za-z0-9]+", "_", u.name).strip("_")
+    st.download_button("📥 Export Matrix (CSV)", out.to_csv(index=False).encode("utf-8"),
+                       f"{safe}_breadth_{start_date}_{end_date}.csv", "text/csv")
+
+
+def render_results(a, start_date, end_date):
+    render_header(a)
+    tabs = st.tabs(["**📊 Overview**", "**🧭 Participation**", "**⚡ Momentum**", "**〰 Oscillators**",
+                    "**🏭 Sectors**", "**🧪 Signal Study**", "**🔎 Constituents**", "**📋 Data**"])
+    renderers = [tab_overview, tab_participation, tab_momentum, tab_oscillators, tab_sectors, tab_study,
+                 tab_constituents]
+    for tab, fn in zip(tabs[:-1], renderers, strict=True):
+        with tab:
+            fn(a)
+    with tabs[-1]:
+        tab_data(a, start_date, end_date)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LANDING
+# ══════════════════════════════════════════════════════════════════════════════
+
+def landing_card(css: str, color_var: str, title: str, body: str, bullets: list[str]) -> str:
+    items = "<br>".join(f"• {b}" for b in bullets)
+    return f"""
+    <div class='metric-card {css}' style='min-height: 300px;'>
+        <h3 style='color: var({color_var}); margin-bottom: 1rem;'>{title}</h3>
+        <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>{body}</p>
+        <p style='color: var(--text-secondary); font-size: 0.85rem; line-height: 1.7;'>{items}</p>
+    </div>"""
 
 
 def render_landing(index):
     st.markdown("""
     <div class="premium-header">
         <h1>MARKET BREADTH : Advance-Decline Intelligence</h1>
-        <div class="tagline">Quantitative Breadth + Trend System</div>
+        <div class="tagline">Participation · Momentum · Signals · Evidence</div>
     </div>
     """, unsafe_allow_html=True)
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown("""
-        <div class='metric-card success' style='min-height: 280px;'>
-            <h3 style='color: var(--success-green); margin-bottom: 1rem;'>📈 Advance/Decline Ratio</h3>
-            <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
-                Measures market breadth by dividing advancing stocks by declining stocks.
-            </p>
-            <br>
-            <p style='color: var(--text-secondary); font-size: 0.85rem;'>
-                <strong>Interpretation:</strong><br>
-                • &gt; 1.2 : Strong Bullish<br>
-                • &lt; 0.8 : Strong Bearish<br>
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-    with col2:
-        st.markdown("""
-        <div class='metric-card primary' style='min-height: 280px;'>
-            <h3 style='color: var(--primary-color); margin-bottom: 1rem;'>🌊 A/D Line (ADL)</h3>
-            <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
-                A cumulative tracking of Net Advances (Advances - Declines). Used to confirm underlying trends.
-            </p>
-            <br>
-            <p style='color: var(--text-secondary); font-size: 0.85rem;'>
-                <strong>Divergence Detection:</strong><br>
-                • Index up, ADL down: Weakening trend<br>
-                • Index down, ADL up: Underlying strength<br>
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-    with col3:
-        st.markdown(f"""
-        <div class='metric-card info' style='min-height: 280px;'>
-            <h3 style='color: var(--info-cyan); margin-bottom: 1rem;'>🎯 Universe Selection</h3>
-            <p style='color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;'>
-                Apply breadth analysis to any major Indian or US Index, commodity futures, or currency pairs.
-            </p>
-            <br>
-            <p style='color: var(--text-secondary); font-size: 0.85rem;'>
-                <strong>Current Target:</strong> {index}
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-
+    cards = [
+        landing_card("success", "--success-green", "🧭 Structural Health",
+                     "Is the move broad or narrow? Participation measured three ways and combined into one score.",
+                     ["% above 20 / 50 / 200-DMA", "52-week new highs vs lows", "Sector participation rotation"]),
+        landing_card("primary", "--primary-color", "⚡ Tactical Momentum",
+                     "How stretched is breadth right now, and is it accelerating?",
+                     ["Relative & Custom Breadth oscillators", "McClellan Oscillator / Summation",
+                      "Up/down traded value & TRIN"]),
+        landing_card("info", "--info-cyan", "🧪 Signals with Evidence",
+                     "Every signal is tested against the benchmark's forward returns before you act on it.",
+                     ["Zweig breadth thrust, washouts", "Price / participation divergences",
+                      "Forward returns vs baseline, by regime"]),
+    ]
+    for col, html in zip(st.columns(3), cards, strict=True):
+        col.markdown(html, unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown(f"""
     <div class='info-box'>
         <h4>🚀 Getting Started</h4>
         <p style='color: var(--text-muted); line-height: 1.7;'>
-            Open the sidebar on the left, choose your target <strong>Universe</strong> and <strong>Index</strong>
-            (currently <i>{index}</i>), configure the <strong>Date Range</strong>, and click
-            <strong>◈ RUN ANALYSIS</strong>. The system will automatically compute the Time Series Matrix,
-            Cumulative ADL, and bi-color gradient Breadth Oscillators.
+            Open the sidebar, choose a <strong>Universe</strong> and <strong>Index</strong>
+            (currently <i>{index}</i>), set the <strong>Display Window</strong> and how much history the
+            <strong>Signal Study</strong> should use, then click <strong>◈ RUN ANALYSIS</strong>.
         </p>
     </div>
     """, unsafe_allow_html=True)
 
 
 def main():
-    universe, index, start_date, end_date, run_btn = render_sidebar()
+    kind, index, start_date, end_date, study_years, run_btn = render_sidebar()
 
     if run_btn:
-        st.session_state.pop("result", None)
+        st.session_state.pop("analysis", None)
         if start_date > end_date:
             st.error("Start date must not be after End date.")
         else:
-            result = run_pipeline(universe, index, start_date, end_date)
-            if result is not None:
-                # Keep results across reruns (e.g. the CSV download button triggers one).
-                st.session_state["result"] = (universe, index, start_date, end_date, *result)
+            a = run_pipeline(kind, index, start_date, end_date, study_years)
+            if a is not None:
+                st.session_state["analysis"] = (a, start_date, end_date)
 
-    if "result" in st.session_state:
-        render_results(*st.session_state["result"])
+    if "analysis" in st.session_state:
+        render_results(*st.session_state["analysis"])
     elif not run_btn:
         render_landing(index)
 

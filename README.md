@@ -2,158 +2,147 @@
 
 **Advance-Decline Intelligence | Hemrek Capital**
 
-A quantitative breadth analytics system that computes institutional-grade advance/decline metrics, custom EMA-smoothed breadth oscillators, and Fibonacci-sequence relative breadth signals across Indian indexes, US indexes, commodities, and currencies.
+A breadth monitor for Indian and US equity indexes, commodity futures and currencies. It answers four questions a desk asks every morning:
 
-Built with Streamlit. Powered by yfinance.
+1. **Is the market healthy underneath?** Structural participation: how many constituents are in uptrends, and are they making new highs or new lows?
+2. **Is breadth stretched right now?** Tactical oscillators and momentum.
+3. **Has anything fired?** Breadth thrusts, washouts, overbought/oversold crossings, and divergences between price and participation.
+4. **Does any of it matter?** Each signal and regime comes with the benchmark's forward returns in this universe, compared with the unconditional baseline.
 
----
-
-## Core Indicators
-
-### 1. Advance/Decline Ratio (ADR)
-
-Raw breadth metric. For each trading day across the selected universe:
-
-```
-AD_Ratio = Advances / Declines
-```
-
-Sentiment thresholds: > 1.2 Strong Bullish, > 1.0 Bullish, < 1.0 Bearish, < 0.8 Strong Bearish.
-
-A 10-day SMA of the AD Ratio is also computed for trend smoothing.
-
-### 2. Cumulative A/D Line
-
-Running sum of net advances (Advances − Declines), starting from the first session of the selected window. Used for divergence detection: index rising while ADL falls signals weakening participation, and vice versa.
-
-### 3. Custom Breadth Oscillator
-
-An EMA-smoothed signal derived from the normalized advance ratio. The computation pipeline:
-
-```
-Step 1:  x = A / (A + D)                         # bounded [0, 1]; 0.5 when A + D = 0
-Step 2:  Seed = SMA(x, 10)                       # first valid 10-period simple average
-Step 3:  BREADTH(t) = BREADTH(t-1) + C × (x(t) - BREADTH(t-1))
-```
-
-Where `C = 2 / (10 + 1) ≈ 0.18182` is the standard EMA smoothing constant for a 10-period window.
-
-Zone interpretation: below 0.40 is oversold (green), above 0.50 is overbought (red).
-
-### 4. Relative Breadth Oscillator
-
-A multi-timeframe smoothing of the Custom Breadth signal using Fibonacci-sequence moving averages:
-
-```
-Step 1:  Compute SMAs of Custom Breadth at periods: 2, 3, 5, 8, 13, 21
-Step 2:  Z = average of the six Fibonacci MAs
-Step 3:  REL_BREADTH = (Z + Custom_Breadth) / 2
-```
-
-This produces a slower, more stable oscillator that filters out single-day noise while preserving regime shifts. Same 0.40/0.50 oversold/overbought thresholds apply.
-
-### 5. Relative A/D Ratio
-
-A momentum-of-breadth signal:
-
-```
-Step 1:  d = AD_Ratio(t) - AD_Ratio(t-1)
-Step 2:  M = mean(SMA(d, 2), SMA(d, 3), SMA(d, 5))
-Step 3:  REL_AD_RATIO = (d + M) / 2
-```
-
-Positive values mean breadth is improving; negative values mean it is deteriorating.
+Built with Streamlit and Plotly. Prices from Yahoo Finance; constituents from NSE and Wikipedia.
 
 ---
 
-## Supported Universes
-
-| Universe | Indexes / Assets |
-|----------|-----------------|
-| **India** | NIFTY 50, NIFTY NEXT 50, NIFTY 100, NIFTY 200, NIFTY 500, NIFTY MIDCAP 50/100, NIFTY SMLCAP 100, NIFTY BANK, AUTO, FIN SERVICE, FMCG, IT, MEDIA, METAL, PHARMA |
-| **US** | S&P 500, DOW JONES, NASDAQ 100 |
-| **Commodities** | 24 futures — Gold, Silver, Crude Oil WTI/Brent, Natural Gas, Copper, Corn, Wheat, Soybeans, Coffee, Cotton, and more |
-| **Currencies** | 24 FX pairs — EUR/USD, GBP/USD, USD/JPY, USD/INR, and more |
-
-Constituent lists are fetched live from NSE India (niftyindices.com) and Wikipedia. If NSE is unreachable, Wikipedia is used for NIFTY 50, NIFTY NEXT 50, NIFTY 100 and NIFTY 500. Other Indian indexes then fall back to a built-in list of large caps, and the app warns that the results do not represent the selected index. The Dow Jones has a built-in fallback list; S&P 500 and NASDAQ 100 report an error instead of guessing.
-
----
-
-## Data Pipeline
-
-```
-NSE CSV / Wikipedia Scrape / Hardcoded Tickers
-                    │
-                    ▼
-          yfinance Download
-   (start − 120 calendar days warm-up)
-                    │
-                    ▼
-        Live Intraday Append
-     (if end date is today and
-      today's bar is missing)
-                    │
-                    ▼
-       Close Matrix Assembly
-   (tz-normalised, de-duplicated dates)
-                    │
-                    ▼
-        Pct Change → A/D/U Count
- (only assets that printed that day; prior
-  close carried over ≤ 2-session gaps;
-  sessions where < max(10, 50%) of the
-  universe reported are dropped)
-                    │
-                    ▼
-    ADR, ADL, Custom Breadth,
-    Relative Breadth Computation
-                    │
-                    ▼
-     Date Window Filter → Display
-```
-
-All indicators are computed over the full warm-up history and only then trimmed to the selected window, so values inside the window don't depend on where the download started.
-
-Data is cached with a 5-minute TTL for price data and a 1-hour TTL for constituent lists. Failed fetches are never cached.
-
----
-
-## Dashboard Layout
-
-**Sidebar** — Universe selection (India / US / Commodities / Currency), index picker, date range, and the RUN ANALYSIS trigger.
-
-**Metric Cards** — Snapshot date, A/D Ratio with sentiment label, Advances count, Declines count, and Net Advances with directional coloring.
-
-Results stay on screen across reruns, for example after clicking the CSV export.
-
-**Time Series Analytics Tab:**
-- Relative Breadth Oscillator — bi-color gradient fill with Fibonacci MA smoothing
-- Relative A/D Ratio — ADR momentum
-- Custom Breadth Oscillator — EMA-smoothed signal with oversold/overbought zones
-- A/D Ratio Oscillator — raw daily ADR with bullish/bearish gradient
-- Cumulative A/D Line — area chart of net advance accumulation
-
-**Raw Data Matrix Tab** — Full historical breadth table with CSV export.
-
-**Last Session Movers Tab** — Per-constituent price and % change for the latest session, sorted from best to worst.
-
-All charts use Plotly with the Hemrek dark theme (background `#0F0F0F`, accent `#FFC300`, green `#10b981`, red `#ef4444`).
-
----
-
-## Installation & Usage
-
-### Requirements
-
-- Python 3.10+
-- Dependencies listed in `requirements.txt`
-
-### Setup
+## Quick start
 
 ```bash
 pip install -r requirements.txt
-streamlit run app.py
+streamlit run app.py                      # dashboard
+python cli.py --index "NIFTY 500"         # headless desk note (cron-friendly)
+python cli.py --universe "US Indexes" --index "S&P 500" --years 5 --json --csv sp500.csv
 ```
+
+Python 3.10+.
+
+---
+
+## The dashboard
+
+**Header**: regime and tactical pills, any signal that fired in the last 5 sessions, six KPI cards (Health Score, % > 50-DMA, % > 200-DMA, Net New Highs, McClellan Oscillator, A/D Ratio), and a generated **Desk Note**. The note states the current reading, what this regime has historically been followed by in this universe, and any active signals.
+
+| Tab | Contents |
+|---|---|
+| Overview | Benchmark with signal markers above the Health Score with regime bands |
+| Participation | % above 20/50/200-DMA; 52-week new highs vs new lows |
+| Momentum | McClellan Oscillator & Summation Index; up/down traded value & TRIN; cumulative A/D line |
+| Oscillators | Relative Breadth, Relative A/D Ratio, Custom Breadth, A/D Ratio (the original Aarambh set) |
+| Sectors | Per-sector participation table and a weekly sector × time heatmap of % above 50-DMA |
+| Signal Study | Forward 5/10/21/63-session benchmark returns after each signal (average, hit rate, edge vs baseline) and by health regime |
+| Constituents | Per-stock snapshot: 1D/21D change, trend position, distance from 52-week high, filterable by sector |
+| Data | Coverage and missing symbols, constituent source, survivorship note, full breadth matrix with CSV export |
+
+Results persist across reruns. The CSV export does not reset the page.
+
+---
+
+## Methodology
+
+### Counting rules
+
+- An asset counts on a session only if it **actually printed** that day. The previous close is carried across gaps of up to 2 sessions (a holiday on one exchange), but a missing print is never counted as "unchanged".
+- Sessions where fewer than max(10, 50% of the universe) assets reported are dropped.
+- All indicators are computed on the full downloaded history (study period plus a 400-calendar-day warm-up) and only then cut to the display window. A reading on a given date doesn't depend on which window you picked.
+
+### Structural health
+
+| Component | Definition |
+|---|---|
+| % above 50-DMA | Share of eligible constituents closing above their own 50-session SMA |
+| % above 200-DMA | Same, 200-session SMA |
+| 52W score | `50 + 2.5 × (new highs − new lows) / eligible × 100`, clipped to 0–100. Net ±20% of the universe at 52-week extremes saturates it. Small counts (2 highs vs 0 lows) barely move it. |
+
+**Health Score** = mean of the three (0–100). The 20-DMA reading is shown but deliberately excluded because it is tactical and makes the score whipsaw.
+
+| Regime | Health Score |
+|---|---|
+| STRONG | ≥ 70 |
+| HEALTHY | 55 – 70 |
+| NEUTRAL | 45 – 55 |
+| WEAK | 30 – 45 |
+| WASHOUT | < 30 |
+
+### Tactical and momentum
+
+**Custom Breadth**: an EMA of `x = A / (A + D)` (0.5 on sessions with no directional moves), seeded with the first full 10-session SMA, `C = 2 / (10 + 1)`:
+```
+BREADTH(t) = BREADTH(t−1) + C × (x(t) − BREADTH(t−1))
+```
+This is the same series Zweig used for his breadth thrust.
+
+**Relative Breadth**: `(Z + Custom_Breadth) / 2`, where `Z` is the mean of the 2, 3, 5, 8, 13 and 21-session SMAs of Custom Breadth. Tactical state: **OVERSOLD** < 0.40, **OVERBOUGHT** > 0.50.
+
+**Relative A/D Ratio**: `(d + mean(SMA₂(d), SMA₃(d), SMA₅(d))) / 2`, where `d` is the daily change in the A/D ratio.
+
+**McClellan Oscillator** (ratio-adjusted, so it is comparable across universe sizes): `RANA = 1000 × (A − D) / (A + D)`, then `EMA₀.₁₀(RANA) − EMA₀.₀₅(RANA)`. The **Summation Index** is its running total from the start of the display window.
+
+**Up/Down traded value**: price × volume summed over advancers vs decliners. Traded value rather than share count, so share price doesn't distort it. **TRIN** = `(A / D) / (up value / down value)`. It isn't available for spot FX, which has no volume.
+
+**A/D Ratio** = A / D (A when D = 0). **A/D Line**: cumulative net advances from the window start.
+
+### Signals
+
+Each signal is debounced: an event within 10 sessions of the previous one is ignored.
+
+| Signal | Bias | Rule |
+|---|---|---|
+| Breadth Thrust | Bullish | Custom Breadth crosses above 0.615 having been below 0.40 within the last 10 sessions (Zweig) |
+| Relative Breadth Oversold | Bullish | Relative Breadth crosses below 0.40 |
+| Relative Breadth Overbought | Bearish | Relative Breadth crosses above 0.50 |
+| Participation Washout | Bullish | % above 50-DMA crosses below 15% |
+| Bearish Divergence | Bearish | Benchmark at a 63-session high while % above 50-DMA is ≥ 15 pts below its own 63-session high |
+| Bullish Divergence | Bullish | Benchmark at a 63-session low while % above 50-DMA is ≥ 15 pts above its own 63-session low |
+
+### Signal study
+
+For every event, the benchmark's return over the next 5, 10, 21 and 63 sessions is computed. The table reports the average, the hit rate (% positive) and the **edge** (average minus the average over all sessions). Rows with fewer than 5 events are flagged. The regime study groups every session by its health regime and reports the 21-session forward return.
+
+**Read it as evidence, not proof:**
+- **Survivorship bias.** History is computed on *today's* constituents, so names that were removed or delisted are missing.
+- **Overlap.** Forward windows of nearby events overlap, so the observations are not independent.
+- **Small samples.** Small samples are noisy. The study history is selectable (1/3/5/10 years) in the sidebar.
+
+---
+
+## Universes
+
+| Universe | Constituents | Reference series |
+|---|---|---|
+| India | 16 NIFTY indexes from the NSE index files (with industry). If NSE is down, Wikipedia is used for NIFTY 50/NEXT 50/100/500; other indexes fall back to a flagged 26-stock large-cap list. | Yahoo index (e.g. `^NSEI`, `^CRSLDX`); NIFTY MIDCAP 100, SMLCAP 100 and MEDIA have no usable Yahoo history and use the equal-weight composite |
+| US | S&P 500, Dow Jones, NASDAQ 100 from Wikipedia (with GICS/ICB sectors); the Dow has a built-in fallback | `^GSPC`, `^DJI`, `^NDX` |
+| Commodities | 24 futures in 6 groups (precious, industrial, energy, grains, softs, livestock) | Equal-weight composite |
+| Currency (vs USD) | 16 currencies. USD-quoted pairs are inverted so an advance always means the currency **rose against USD**; high breadth = broad dollar weakness. Crosses are excluded because their direction has no common reference. | Equal-weight composite |
+
+If a benchmark download fails, the equal-weight composite is used automatically, and the UI says which series is in use.
+
+Caching: constituents 1 hour, prices 5 minutes. Failures are never cached.
+
+---
+
+## Project layout
+
+| Path | Purpose |
+|---|---|
+| `app.py` | Streamlit UI and caching |
+| `cli.py` | Headless report (text or JSON, optional CSV) |
+| `breadth/universe.py` | Universes, constituent scraping, sectors, benchmarks |
+| `breadth/data.py` | Yahoo download, field extraction, live-session append, FX inversion |
+| `breadth/indicators.py` | Breadth panel, health/tactical classification, per-asset snapshot, sector aggregation |
+| `breadth/signals.py` | Signal definitions, event detection, desk note |
+| `breadth/study.py` | Forward-return event and regime studies |
+| `breadth/pipeline.py` | `run()` / `build_analysis()`: everything above in one call |
+| `breadth/charts.py` | Plotly figures |
+| `assets/style.css` | Hemrek design system |
+| `tests/` | 51 offline tests (network mocked, synthetic market generator) |
 
 ### Development
 
@@ -165,35 +154,25 @@ pytest -q
 
 CI (GitHub Actions) runs lint and tests on Python 3.10 and 3.13 on every push.
 
-### Project Layout
-
-| File | Purpose |
-|---|---|
-| `app.py` | Streamlit UI, design-system CSS, caching |
-| `engine.py` | Universes, constituent fetching, price download, breadth computation (no Streamlit dependency) |
-| `charts.py` | Plotly chart builders |
-| `tests/` | Unit tests for the engine and charts (offline, network mocked) |
-| `.streamlit/config.toml` | Server settings and dark theme matching the custom CSS |
-
 ---
 
-## Aarambh Spreadsheet Correspondence
-
-The system replicates the computations from the Aarambh master spreadsheet:
+## Aarambh spreadsheet correspondence
 
 | Spreadsheet Column | App Column | Formula |
 |---|---|---|
 | `A/(A+D)` (Col C) | Derived internally | `Advances / (Advances + Declines)` |
-| `BREADTH` (Col J) | `Custom_Breadth` | EMA of A/(A+D) with smoothing constant `2/(10+1)` |
+| `BREADTH` (Col J) | `Custom_Breadth` | EMA of A/(A+D), smoothing constant `2/(10+1)` |
 | 2D–21D MAs (Cols K–P) | Intermediate | Fibonacci-period SMAs of Custom Breadth |
-| Avg of MAs (Col Q) | Z variable | `mean(MA2, MA3, MA5, MA8, MA13, MA21)` |
+| Avg of MAs (Col Q) | Z | `mean(MA2, MA3, MA5, MA8, MA13, MA21)` |
 | `REL_BREADTH` (Col R) | `Relative_Breadth` | `(Z + Custom_Breadth) / 2` |
 
 ---
 
 ## Version
 
-v1.9.0 (2026) — Correctness audit: stale prices no longer counted as "unchanged", EMA alignment fixed when sessions are dropped, longer indicator warm-up, A/D line anchored to the window start, repaired Dow/NASDAQ-100/NIFTY 500 constituent scraping, failures no longer cached, TLS verification restored, results persist across reruns, new movers tab, tests and CI.
+**v2.0.0 (2026)**: Institutional rebuild. Structural Health Score and regimes; trend participation (20/50/200-DMA); 52-week highs/lows; ratio-adjusted McClellan Oscillator and Summation Index; value-weighted up/down breadth and TRIN; benchmark overlay; Zweig thrust, washout and divergence signals; forward-return signal and regime studies; sector breadth and rotation heatmap; constituent snapshot; generated desk note; USD-oriented currency breadth; headless CLI; engine split into the `breadth` package.
+
+v1.9.0: Correctness audit (stale-price counting, EMA alignment, warm-up, scrapers, caching, TLS).
 
 ---
 
