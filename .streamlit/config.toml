@@ -1,2 +1,14 @@
 [server]
 fileWatcherType = "none"
+
+[theme]
+# Match the custom CSS so native widgets stay readable for light-mode users.
+base = "dark"
+primaryColor = "#FFC300"
+backgroundColor = "#0F0F0F"
+secondaryBackgroundColor = "#1A1A1A"
+textColor = "#EAEAEA"
+font = "sans serif"
+
+[browser]
+gatherUsageStats = false
