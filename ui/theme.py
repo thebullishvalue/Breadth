@@ -1,6 +1,6 @@
 """
-Market Breadth — Shared CSS, chart theming, and colour constants for the UI layer.
-विस्तार (Vistāra) — "Breadth, expanse"
+Vyāpti — Shared CSS, chart theming, and colour constants for the UI layer.
+व्याप्ति (Vyāpti) — "Pervasion": how far a move extends through the whole
 
 Ported from Arthagati's UI layer, itself ported from Tattva's. The architecture is adopted whole because it
 solves problems this app also has and had solved worse: a light theme that is

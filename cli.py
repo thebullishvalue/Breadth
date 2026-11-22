@@ -35,7 +35,7 @@ def _clean(v):
 
 def main(argv=None) -> int:
     today = datetime.date.today()
-    ap = argparse.ArgumentParser(description="Market breadth reading")
+    ap = argparse.ArgumentParser(description="Vyāpti — market breadth reading")
     ap.add_argument("--universe", default=UNIVERSE_KINDS[0], choices=UNIVERSE_KINDS)
     ap.add_argument("--index", default="NIFTY 500", help="Index name (ignored for Commodities/Currency)")
     ap.add_argument("--asof", type=datetime.date.fromisoformat, default=today)

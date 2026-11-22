@@ -1,7 +1,7 @@
 """
-Market Breadth — reusable UI components: panels, metric cards, chips, tables, the
+Vyāpti — reusable UI components: panels, metric cards, chips, tables, the
 tape, and the read card.
-विस्तार (Vistāra) — "Breadth, expanse"
+व्याप्ति (Vyāpti) — "Pervasion": how far a move extends through the whole
 
 Ported from Arthagati (itself ported from Tattva) so the family reads as one
 product. The read card follows Tattva's anatomy: a state, whether its record

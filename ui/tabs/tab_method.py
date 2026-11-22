@@ -1,5 +1,5 @@
 """
-Market Breadth — Method: how every number in the app is made.
+Vyāpti — Method: how every number in the app is made.
 
 One table per layer, in pipeline order: counting → oscillators → reads →
 record. Nothing here is computed; it is the specification, rendered from the

@@ -1,5 +1,5 @@
 """
-Market Breadth — Breadth Engine: the read, and the oscillators it is taken off.
+Vyāpti — Breadth Engine: the read, and the oscillators it is taken off.
 
 The app's front door. Reading order — the family's house convention:
 

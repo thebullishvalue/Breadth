@@ -1,5 +1,5 @@
 """
-Market Breadth — cold start: a description of the product, built from the
+Vyāpti — cold start: a description of the product, built from the
 product's own parts.
 
 Same reading order as the rest of the family:
@@ -73,7 +73,7 @@ _OUTCOMES = (
 
 
 def render_landing_page() -> None:
-    render_header("MARKET BREADTH", "Relative Breadth · Custom Breadth · Relative A/D Ratio · A/D Line")
+    render_header("VYAPTI", "Relative Breadth · Custom Breadth · Relative A/D Ratio · A/D Line")
 
     st.markdown(
         """<div class="lede">

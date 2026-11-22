@@ -1,5 +1,5 @@
 """
-Market Breadth — Record: what each reading has meant for this index.
+Vyāpti — Record: what each reading has meant for this index.
 
   1 TRUST   does any zone matter here?   Zone Record (one card per zone)
   2 ANCHOR  the full comparison          By Zone

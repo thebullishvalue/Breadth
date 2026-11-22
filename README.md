@@ -1,6 +1,8 @@
-# MARKET BREADTH
+# VYĀPTI
 
-**विस्तार · Advance–Decline Breadth | @thebullishvalue**
+**व्याप्ति · Market Breadth | @thebullishvalue**
+
+*Vyāpti* means pervasion: how far something extends through the whole. Breadth measures exactly that, namely how far a move has spread through an index's members. In Nyāya logic, vyāpti is also the invariable relation that licenses an inference from evidence, which is the system's other half: the record that says whether a reading has ever meant anything before you lean on it.
 
 Reads an index's breadth cycle with the Aarambh oscillators and answers three questions, in this order:
 
@@ -161,6 +163,8 @@ CI (GitHub Actions) runs lint and tests on Python 3.10 and 3.13 on every push.
 
 ## Version
 
+**v3.2.0 (2026)**: Renamed Market Breadth → Vyāpti.
+
 **v3.1.0 (2026)**: The family interface. Adopted the shared UI layer of Tattva, Arthagati and Pragyam: the Graphite design system with Paper/Slate appearances, tape / command bar / notice rail shell, `st.navigation` pages in house reading order, Tattva's read card, panel-anchored chart windows, the institutional table, and the family landing page.
 
 **v3.0.0 (2026)**: Rebuilt around the Aarambh oscillators. The zone is the headline; direction, momentum and the A/D-line trend support it. Evidence uses only real-time information and is sized by episode. A plain-language reading with "what would change it" replaces the indicator dashboard. Sectors are read with the same oscillator. An as-of date allows historical replay.
@@ -169,4 +173,4 @@ v2.0.0: Institutional indicator set (superseded; see the audit above). v1.9.0: C
 
 ---
 
-*© 2026 Market Breadth · @thebullishvalue*
+*© 2026 Vyāpti · @thebullishvalue*

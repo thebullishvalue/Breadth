@@ -1,4 +1,4 @@
-"""Market Breadth — product identity and the UI's shared settings.
+"""Vyāpti — product identity and the UI's shared settings.
 
 The single source the UI layer (ui/theme.py, ui/components.py) reads its name,
 version and chart windows from, the same contract as the rest of the
@@ -8,13 +8,13 @@ version and chart windows from, the same contract as the rest of the
 from breadth import __version__
 
 VERSION = f"v{__version__}"
-PRODUCT_NAME = "Market Breadth"
+PRODUCT_NAME = "Vyāpti"
 COMPANY = "@thebullishvalue"
 
 #: The product mark, split where the accent starts (see render_nav_brand).
-MARK_HEAD, MARK_TAIL = "MARKET\u00a0", "BREADTH"   # non-breaking space: one mark, two words
-SANSKRIT = "विस्तार"            # vistāra — breadth, expanse
-TAGLINE = "विस्तार · Advance–Decline Breadth"
+MARK_HEAD, MARK_TAIL = "VYAP", "TI"
+SANSKRIT = "व्याप्ति"           # vyāpti — pervasion; in Nyāya, the relation that licenses an inference
+TAGLINE = "व्याप्ति · Market Breadth"
 
 #: Chart windows offered in each page's primary chart panel (calendar days).
 #: The engine always computes on the full history; these only frame the plots.

@@ -1,5 +1,5 @@
 """
-Market Breadth — Data: the full daily record behind the read.
+Vyāpti — Data: the full daily record behind the read.
 
   1 TRUST   what is it based on?        Coverage
   2 ANCHOR  every session               Daily Breadth

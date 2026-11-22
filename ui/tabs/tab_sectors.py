@@ -1,5 +1,5 @@
 """
-Market Breadth — Sectors: where breadth is coming from.
+Vyāpti — Sectors: where breadth is coming from.
 
   1 TRUST   how broad is it?            Sector Zones
   2 ANCHOR  the rotation                Sector Breadth, week by week

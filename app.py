@@ -1,8 +1,8 @@
 """
-Market Breadth — Main Streamlit entrypoint.
-विस्तार (Vistāra) — "Breadth, expanse"
+Vyāpti — Main Streamlit entrypoint.
+व्याप्ति (Vyāpti) — "Pervasion": how far a move extends through the whole
 
-MARKET BREADTH — one oscillator says where breadth stands, two more say which
+VYĀPTI — one oscillator says where breadth stands, two more say which
 way it is moving, and the index's own history says whether that reading has
 ever mattered. Built on the Aarambh oscillators; the interface is the
 @thebullishvalue family's (Tattva, Arthagati, Pragyam).
@@ -208,7 +208,7 @@ def _render_footer() -> None:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def main() -> None:
-    st.set_page_config(page_title="MARKET BREADTH | Advance–Decline Breadth", page_icon=PAGE_ICON,
+    st.set_page_config(page_title="VYAPTI | Market Breadth", page_icon=PAGE_ICON,
                        layout="wide", initial_sidebar_state="expanded")
     # Resolve the appearance BEFORE anything is styled, so chrome and charts agree on one value.
     st.session_state["theme"] = "light" if theme_choice() == "Paper" else "dark"
