@@ -1,7 +1,7 @@
-"""Headless breadth report, for cron jobs and quick terminal checks.
+"""Headless breadth reading, for scheduled jobs and quick terminal checks.
 
-    python cli.py --universe "India Indexes" --index "NIFTY 500"
-    python cli.py --universe "US Indexes" --index "S&P 500" --years 5 --csv sp500.csv --json
+    python cli.py --index "NIFTY 500"
+    python cli.py --universe "US Indexes" --index "S&P 500" --years 10 --json --csv sp500.csv
 """
 
 from __future__ import annotations
@@ -15,53 +15,61 @@ import sys
 import pandas as pd
 
 from breadth import run
-from breadth.signals import SIGNAL_BY_KEY, recent_events
+from breadth.narrative import ZONE_LABEL
+from breadth.study import CROSSING_TEXT
 from breadth.universe import UNIVERSE_KINDS
 
-SNAPSHOT_FIELDS = ["Advances", "Declines", "AD_Ratio", "Pct_Above_20", "Pct_Above_50", "Pct_Above_200",
-                   "New_Highs", "New_Lows", "NH_NL", "McClellan_Osc", "Custom_Breadth", "Relative_Breadth",
-                   "Health_Score", "Regime", "Tactical", "Coverage"]
+FIELDS = ["Advances", "Declines", "AD_Ratio", "Custom_Breadth", "Relative_Breadth", "Rel_AD_Ratio", "Zone",
+          "Direction", "Momentum", "Breadth_Trend"]
+
+
+def _plain(text: str) -> str:
+    return re.sub(r"\*\*(.+?)\*\*", r"\1", text)
 
 
 def _clean(v):
-    if isinstance(v, (float, int)) and pd.isna(v):
-        return None
-    return round(float(v), 4) if isinstance(v, float) else (int(v) if hasattr(v, "item") else v)
+    if isinstance(v, float):
+        return None if pd.isna(v) else round(v, 4)
+    return int(v) if hasattr(v, "item") and float(v).is_integer() else v
 
 
 def main(argv=None) -> int:
     today = datetime.date.today()
-    ap = argparse.ArgumentParser(description="Market breadth report")
+    ap = argparse.ArgumentParser(description="Market breadth reading")
     ap.add_argument("--universe", default=UNIVERSE_KINDS[0], choices=UNIVERSE_KINDS)
     ap.add_argument("--index", default="NIFTY 500", help="Index name (ignored for Commodities/Currency)")
-    ap.add_argument("--start", type=datetime.date.fromisoformat, default=today - datetime.timedelta(days=180))
-    ap.add_argument("--end", type=datetime.date.fromisoformat, default=today)
-    ap.add_argument("--years", type=int, default=3, help="History used for the signal study")
-    ap.add_argument("--csv", help="Write the windowed breadth panel to this CSV path")
-    ap.add_argument("--json", action="store_true", help="Print a JSON snapshot instead of text")
+    ap.add_argument("--asof", type=datetime.date.fromisoformat, default=today)
+    ap.add_argument("--days", type=int, default=182, help="Calendar days of daily figures for --csv")
+    ap.add_argument("--years", type=int, default=5, help="History used to judge each reading")
+    ap.add_argument("--csv", help="Write the daily figures to this CSV path")
+    ap.add_argument("--json", action="store_true", help="Print JSON instead of text")
     args = ap.parse_args(argv)
 
     index = args.index if args.universe in UNIVERSE_KINDS[:2] else None
-    a = run(args.universe, index, args.start, args.end, args.years)
+    a = run(args.universe, index, args.asof - datetime.timedelta(days=args.days), args.asof, args.years)
     if a is None:
-        print("No usable sessions in the selected window.", file=sys.stderr)
+        print("No usable sessions in the selected period.", file=sys.stderr)
         return 1
-
     if args.csv:
         a.view.to_csv(args.csv)
 
-    signals = [{"signal": SIGNAL_BY_KEY[k].label, "bias": SIGNAL_BY_KEY[k].bias, "date": str(d.date()),
-                "sessions_ago": ago} for k, d, ago in recent_events(a.events)]
     if args.json:
         print(json.dumps({
-            "universe": a.universe.name, "asof": str(a.asof.date()), "reference": a.price_source,
-            "snapshot": {f: _clean(a.last[f]) for f in SNAPSHOT_FIELDS},
-            "recent_signals": signals,
+            "universe": a.universe.name, "asof": str(a.asof.date()), "zone": a.zone,
+            "versus_normal": a.verdict.label, "verdict": a.verdict.sentence,
+            "latest": {f: _clean(a.last[f]) for f in FIELDS},
+            "recent_crossings": [{"what": CROSSING_TEXT[k], "sessions_ago": ago} for k, ago in a.recent],
+            "reading": [_plain(p) for p in a.reading],
+            "watch": [_plain(w) for w in a.watch],
         }, indent=2))
     else:
-        print(f"{a.universe.name} — breadth as of {a.asof:%d %b %Y} ({a.universe.source})")
-        for line in a.note:
-            print(" • " + re.sub(r"\*\*(.+?)\*\*", r"\1", line))
+        print(f"{a.universe.name}: breadth is {ZONE_LABEL[a.zone].upper()} as of {a.asof:%d %b %Y}")
+        print(f"\n{a.verdict.sentence}\n")
+        for p in a.reading:
+            print(_plain(p) + "\n")
+        print("What would change it:")
+        for w in a.watch:
+            print(" • " + _plain(w))
     return 0
 
 

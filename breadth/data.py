@@ -1,4 +1,4 @@
-"""Price/volume download from Yahoo Finance and matrix normalisation."""
+"""Price download from Yahoo Finance and matrix normalisation."""
 
 from __future__ import annotations
 
@@ -8,27 +8,20 @@ from dataclasses import dataclass, field
 import pandas as pd
 import yfinance as yf
 
-# Calendar days of history loaded before the analysis period so every
-# indicator is fully formed on its first displayed day. The longest look-backs
-# are the 52-week high/low window (252 sessions) and the 200-session MA;
-# 400 calendar days ≈ 275 sessions covers both with holiday slack.
-WARMUP_CALENDAR_DAYS = 400
+# Calendar days loaded before the requested history so every oscillator (and the
+# A/D line's 50-session average) is fully formed on the first day used.
+WARMUP_CALENDAR_DAYS = 150
 
 
 @dataclass
 class MarketData:
     close: pd.DataFrame                       # date x ticker, adjusted
-    volume: pd.DataFrame                      # date x ticker (may be empty/all-NaN)
-    benchmark: pd.Series | None = None        # benchmark index level
+    benchmark: pd.Series | None = None        # index level
     benchmark_ticker: str | None = None
     missing: list[str] = field(default_factory=list)  # requested tickers with no data
 
-    @property
-    def has_volume(self) -> bool:
-        return not self.volume.empty and bool((self.volume.fillna(0) > 0).any().any())
 
-
-def normalize_index(df: pd.DataFrame | pd.Series):
+def normalize_index(df):
     """Date-only, tz-naive, sorted, de-duplicated index."""
     idx = pd.to_datetime(df.index)
     if idx.tz is not None:
@@ -71,7 +64,7 @@ def download_market_data(
     invert: list[str] | None = None,
     today: datetime.date | None = None,
 ) -> MarketData:
-    """Download closes/volumes (plus benchmark) from ``start_date - warm-up`` to ``end_date``.
+    """Download closes (plus benchmark) from ``start_date - warm-up`` to ``end_date``.
 
     Raises ``RuntimeError`` when no usable constituent data comes back.
     """
@@ -86,24 +79,17 @@ def download_market_data(
     close = extract_field(raw, "Close", request)
     if close is None:
         raise RuntimeError("No price data returned from Yahoo Finance")
-    volume = extract_field(raw, "Volume", request)
     close = normalize_index(close)
-    volume = normalize_index(volume) if volume is not None else pd.DataFrame(index=close.index)
 
     # Best-effort intraday append: the daily endpoint can lag the live session.
     if end_date >= today and pd.Timestamp(today) not in close.index:
         try:
-            live = _yf_download(close.columns.tolist(), period="1d")
-            lc = extract_field(live, "Close", close.columns.tolist())
+            lc = extract_field(_yf_download(close.columns.tolist(), period="1d"), "Close", close.columns.tolist())
             if lc is not None:
                 lc = normalize_index(lc)
                 new = lc.loc[~lc.index.isin(close.index)]
                 if not new.empty:
                     close = pd.concat([close, new]).sort_index()
-                    lv = extract_field(live, "Volume", close.columns.tolist())
-                    if lv is not None:
-                        lv = normalize_index(lv)
-                        volume = pd.concat([volume, lv.loc[lv.index.isin(new.index)]]).sort_index()
         except Exception:
             pass
 
@@ -112,7 +98,6 @@ def download_market_data(
         bench = close[benchmark].dropna()
         if benchmark not in tickers:
             close = close.drop(columns=benchmark)
-            volume = volume.drop(columns=benchmark, errors="ignore")
         bench = bench if len(bench) else None
 
     for t in invert or []:
@@ -122,7 +107,5 @@ def download_market_data(
     close = close.dropna(axis=1, how="all")
     if close.empty:
         raise RuntimeError("No constituent price data returned from Yahoo Finance")
-    volume = volume.reindex(index=close.index, columns=close.columns)
-    missing = [t for t in tickers if t not in close.columns]
-    return MarketData(close=close, volume=volume, benchmark=bench,
-                      benchmark_ticker=benchmark if bench is not None else None, missing=missing)
+    return MarketData(close=close, benchmark=bench, benchmark_ticker=benchmark if bench is not None else None,
+                      missing=[t for t in tickers if t not in close.columns])

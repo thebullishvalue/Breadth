@@ -6,22 +6,25 @@ from breadth import build_analysis
 from synthetic import make_market
 
 
+def fake_run(uni, data):
+    return lambda kind, index, s, e, y: build_analysis(uni, data, s, e)
+
+
 def test_cli_json_and_csv(monkeypatch, tmp_path, capsys):
-    uni, data = make_market()
-    monkeypatch.setattr(cli, "run", lambda kind, index, s, e, y: build_analysis(uni, data, s, e))
-    out_csv = tmp_path / "panel.csv"
-    rc = cli.main(["--universe", "US Indexes", "--index", "S&P 500", "--start", "2026-09-01",
-                   "--end", "2026-11-20", "--csv", str(out_csv), "--json"])
+    monkeypatch.setattr(cli, "run", fake_run(*make_market()))
+    out_csv = tmp_path / "daily.csv"
+    rc = cli.main(["--universe", "US Indexes", "--index", "S&P 500", "--asof", "2026-11-20",
+                   "--csv", str(out_csv), "--json"])
     assert rc == 0 and out_csv.exists()
     payload = json.loads(capsys.readouterr().out)
-    assert payload["asof"] == "2026-11-20" and payload["snapshot"]["Regime"] in {
-        "STRONG", "HEALTHY", "NEUTRAL", "WEAK", "WASHOUT"}
-    assert isinstance(payload["snapshot"]["Advances"], int)
+    assert payload["asof"] == "2026-11-20" and payload["zone"] in {"OVERSOLD", "NEUTRAL", "OVERBOUGHT"}
+    assert isinstance(payload["latest"]["Advances"], int) and payload["reading"] and payload["watch"]
+    assert "**" not in json.dumps(payload)
 
 
 def test_cli_text(monkeypatch, capsys):
-    uni, data = make_market()
-    monkeypatch.setattr(cli, "run", lambda kind, index, s, e, y: build_analysis(uni, data, s, e))
-    assert cli.main(["--end", "2026-11-20", "--start", str(datetime.date(2026, 10, 1))]) == 0
+    monkeypatch.setattr(cli, "run", fake_run(*make_market()))
+    assert cli.main(["--asof", str(datetime.date(2026, 11, 20))]) == 0
     text = capsys.readouterr().out
-    assert "breadth as of 20 Nov 2026" in text and "**" not in text
+    assert "breadth is" in text and "as of 20 Nov 2026" in text and "What would change it" in text
+    assert "**" not in text

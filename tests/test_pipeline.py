@@ -11,21 +11,28 @@ from synthetic import make_market
 def test_build_analysis_end_to_end():
     uni, data = make_market()
     a = build_analysis(uni, data, datetime.date(2026, 6, 1), datetime.date(2026, 11, 20))
-    assert a is not None and a.price_source == "benchmark"
+    assert a is not None and a.uses_index and a.index_name == "TEST"
     assert a.view.index[0] >= pd.Timestamp("2026-06-01") and a.asof == pd.Timestamp("2026-11-20")
-    assert a.view["Health_Score"].notna().all() and a.view["Pct_Above_200"].notna().all()
-    assert len(a.note) >= 4 and a.note[-1]
-    assert set(a.events) == {"thrust", "rb_oversold", "rb_overbought", "washout", "bear_div", "bull_div"}
-    assert a.event_table["Signal"].iloc[-1] == "All sessions (baseline)"
-    assert len(a.snapshot) == 60 and a.sectors["Members"].sum() == 60
-    assert a.sector_history.index[0] >= a.view.index[0]
+    assert a.zone in {"OVERSOLD", "NEUTRAL", "OVERBOUGHT"}
+    assert a.verdict.label in {"FAVOURABLE", "NORMAL", "UNFAVOURABLE", "TOO FEW CASES"}
+    assert len(a.reading) == 3 and len(a.watch) == 2
+    assert set(a.zone_evidence.index) == {"OVERSOLD", "NEUTRAL", "OVERBOUGHT", "ALL"}
+    assert set(a.crossing_evidence.index) == {"OS_IN", "OS_OUT", "OB_IN", "OB_OUT"}
+    assert len(a.stocks) == 60 and a.sectors["Stocks"].sum() == 60
 
 
-def test_build_analysis_falls_back_to_ew_composite():
+def test_equal_weight_fallback_names_the_basket():
     uni, data = make_market(n_days=500)
     data.benchmark = None
     a = build_analysis(uni, data, datetime.date(2026, 9, 1), datetime.date(2026, 11, 20))
-    assert a.price_source == "equal-weight composite"
+    assert not a.uses_index and a.index_name == "the equal-weighted TEST basket"
+    assert "the equal-weighted TEST basket" in a.verdict.sentence
+
+
+def test_as_of_date_ignores_later_data():
+    uni, data = make_market()
+    a = build_analysis(uni, data, datetime.date(2026, 3, 1), datetime.date(2026, 6, 30))
+    assert a.asof <= pd.Timestamp("2026-06-30") and a.panel.index[-1] == a.asof
 
 
 def test_window_outside_data_returns_none():
@@ -36,20 +43,18 @@ def test_window_outside_data_returns_none():
 def test_history_start():
     assert history_start(datetime.date(2026, 6, 1), datetime.date(2026, 11, 20), 3) == datetime.date(2023, 11, 20)
     assert history_start(datetime.date(2020, 1, 1), datetime.date(2026, 11, 20), 1) == datetime.date(2020, 1, 1)
+    assert history_start(datetime.date(2028, 2, 29), datetime.date(2028, 2, 29), 1) == datetime.date(2027, 2, 28)
 
 
-def test_all_charts_build():
+def test_charts_build_with_zone_shapes():
     uni, data = make_market()
-    a = build_analysis(uni, data, datetime.date(2026, 6, 1), datetime.date(2026, 11, 20))
-    figs = [
-        charts.plot_overview(a.view, a.price, a.events, "BENCH"), charts.plot_participation(a.view),
-        charts.plot_highs_lows(a.view), charts.plot_mcclellan(a.view), charts.plot_volume_breadth(a.view),
-        charts.plot_sector_heatmap(a.sector_history), charts.plot_regime_returns(a.regime_table),
-        charts.plot_relative_breadth(a.view), charts.plot_custom_breadth(a.view),
-        charts.plot_rel_ad_ratio(a.view), charts.plot_ad_ratio(a.view), charts.plot_ad_line(a.view),
-    ]
-    assert all(f.data for f in figs)
-    assert len(figs[0].layout.shapes) == len(charts.REGIME_BANDS)   # regime bands actually drawn
+    a = build_analysis(uni, data, datetime.date(2026, 3, 1), datetime.date(2026, 11, 20))
+    cycle = charts.plot_cycle(a.view, a.price, "TEST")
+    shaded = sum(1 for _, _, z in charts._zone_segments(a.view["Zone"]) if z != "NEUTRAL")
+    assert len(cycle.layout.shapes) == shaded + 6       # zone shading + 2 bands + 4 reference lines
+    for fig in (charts.plot_ad_ratio(a.view), charts.plot_ad_line(a.view),
+                charts.plot_sector_heatmap(a.sector_osc, a.view.index[0], a.asof)):
+        assert fig.data
 
 
 def test_extract_field_multiindex_and_single():
@@ -57,7 +62,6 @@ def test_extract_field_multiindex_and_single():
     cols = pd.MultiIndex.from_product([["A", "B"], ["Close", "Volume"]])
     raw = pd.DataFrame(np.arange(12.0).reshape(3, 4), index=idx, columns=cols)
     assert list(bd.extract_field(raw, "Close", ["A", "B"]).columns) == ["A", "B"]
-    assert list(bd.extract_field(raw, "Volume", ["A", "B"]).columns) == ["A", "B"]
     single = pd.DataFrame({"Close": [1.0, 2, 3]}, index=idx)
     assert list(bd.extract_field(single, "Close", ["X"]).columns) == ["X"]
 
@@ -68,7 +72,7 @@ def test_download_splits_benchmark_inverts_and_warms_up(monkeypatch):
     def fake(tickers, **kw):
         calls.append((tickers, kw))
         idx = pd.bdate_range(kw["start"], kw["end"] - datetime.timedelta(days=1))
-        cols = pd.MultiIndex.from_product([[t for t in tickers if t != "DEAD"], ["Close", "Volume"]])
+        cols = pd.MultiIndex.from_product([[t for t in tickers if t != "DEAD"], ["Close"]])
         return pd.DataFrame(2.0, index=idx, columns=cols)
 
     monkeypatch.setattr(bd, "_yf_download", fake)
@@ -79,5 +83,4 @@ def test_download_splits_benchmark_inverts_and_warms_up(monkeypatch):
     assert tickers == ["A", "USDX", "DEAD", "^B"] and len(calls) == 1
     assert kw["start"] == start - datetime.timedelta(days=bd.WARMUP_CALENDAR_DAYS)
     assert list(md.close.columns) == ["A", "USDX"] and md.missing == ["DEAD"]
-    assert (md.close["USDX"] == 0.5).all() and (md.close["A"] == 2.0).all()
-    assert md.benchmark_ticker == "^B" and md.has_volume
+    assert (md.close["USDX"] == 0.5).all() and md.benchmark_ticker == "^B"

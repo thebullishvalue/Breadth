@@ -1,4 +1,10 @@
-"""Plotly chart builders. Every function takes the windowed panel (Date index)."""
+"""Plotly figures. One colour language throughout:
+
+    green  = oversold zone (Relative Breadth < 0.40) / positive momentum
+    amber  = overbought zone (Relative Breadth > 0.50)
+    red    = negative momentum
+    gold   = Relative Breadth, cyan = Custom Breadth
+"""
 
 from __future__ import annotations
 
@@ -6,230 +12,115 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from .signals import SIGNAL_BY_KEY
+from .indicators import MIDLINE, OVERBOUGHT, OVERSOLD
 
 GREEN = "#10b981"
+AMBER = "#f59e0b"
 RED = "#ef4444"
 GREY = "#888888"
 GOLD = "#FFC300"
 CYAN = "#06b6d4"
-GREEN_FILL = "rgba(16,185,129,0.15)"
-RED_FILL = "rgba(239,68,68,0.15)"
-
-OVERSOLD = 0.40
-OVERBOUGHT = 0.50
-BREADTH_MID = 0.46
-
-
-def _base_layout(fig: go.Figure, y_title: str, y_range=None) -> go.Figure:
-    yaxis = dict(showgrid=True, gridcolor="rgba(42,42,42,0.5)", title=y_title)
-    if y_range is not None:
-        yaxis["range"] = y_range
-    fig.update_layout(
-        template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="#1A1A1A", height=350,
-        margin=dict(l=10, r=10, t=10, b=10),
-        xaxis=dict(showgrid=True, gridcolor="rgba(42,42,42,0.5)"),
-        yaxis=yaxis, showlegend=False,
-        font=dict(family="Inter", color="#EAEAEA"), hovermode="x unified",
-    )
-    return fig
+TEXT = "#EAEAEA"
+OS_FILL = "rgba(16,185,129,0.14)"
+OB_FILL = "rgba(245,158,11,0.07)"
+OB_SHADE = "rgba(245,158,11,0.045)"   # lighter on the price pane, where overbought can cover most sessions
+ZONE_COLOR = {"OVERSOLD": GREEN, "NEUTRAL": GREY, "OVERBOUGHT": AMBER}
 
 
-def _oscillator(df, col, name, mid, above_fill, below_fill, colors, y_title, y_range, hlines=()):
-    fig = go.Figure()
-    s = df[col]
-    baseline = [mid] * len(df)
-    for clipped, fill in ((s.clip(lower=mid), above_fill), (s.clip(upper=mid), below_fill)):
-        fig.add_trace(go.Scatter(x=df.index, y=baseline, line=dict(width=0), hoverinfo="skip"))
-        fig.add_trace(go.Scatter(x=df.index, y=clipped, fill="tonexty", fillcolor=fill,
-                                 line=dict(width=0), hoverinfo="skip"))
-    fig.add_trace(go.Scatter(x=df.index, y=s, mode="lines+markers", name=name,
-                             line=dict(color=GOLD, width=2),
-                             marker=dict(size=6, color=colors, line=dict(width=0))))
-    for y, color in hlines:
-        fig.add_hline(y=y, line=dict(color=color, width=1, dash="dash"))
-    fig.add_hline(y=mid, line=dict(color="rgba(255,255,255,0.2)", width=1))
-    return _base_layout(fig, y_title, y_range)
-
-
-def _padded_range(s: pd.Series, lo_default: float, hi_default: float, pad: float):
-    v_max, v_min = s.max(), s.min()
-    hi = float(v_max + pad) if pd.notna(v_max) and v_max > hi_default else hi_default
-    lo = float(v_min - pad) if pd.notna(v_min) and v_min < lo_default else lo_default
-    return [lo, hi]
-
-
-def _breadth_colors(s: pd.Series):
-    return [GREEN if v < OVERSOLD else RED if v > OVERBOUGHT else GREY for v in s]
-
-
-def _breadth_oscillator(df, col, name):
-    return _oscillator(
-        df, col, name, BREADTH_MID, RED_FILL, GREEN_FILL, _breadth_colors(df[col]), name,
-        _padded_range(df[col], 0.35, 0.55, 0.05),
-        hlines=((OVERBOUGHT, "rgba(239,68,68,0.5)"), (OVERSOLD, "rgba(16,185,129,0.5)")),
-    )
-
-
-def plot_relative_breadth(df):
-    return _breadth_oscillator(df, "Relative_Breadth", "Relative Breadth")
-
-
-def plot_custom_breadth(df):
-    return _breadth_oscillator(df, "Custom_Breadth", "Custom Breadth")
-
-
-def plot_rel_ad_ratio(df):
-    s = df["Rel_AD_Ratio"]
-    vals = s.dropna()
-    if vals.empty:
-        y_range = [-0.5, 0.5]
-    else:
-        pad = max(abs(vals.max()), abs(vals.min()), 0.05) * 0.15
-        y_range = [float(vals.min() - pad), float(vals.max() + pad)]
-    colors = [GREEN if v > 0 else RED if v < 0 else GREY for v in s]
-    return _oscillator(df, "Rel_AD_Ratio", "Rel A/D Ratio", 0.0, GREEN_FILL, RED_FILL,
-                       colors, "Rel A/D Ratio", y_range)
-
-
-def plot_ad_ratio(df):
-    s = df["AD_Ratio"]
-    colors = [GREEN if v > 1.2 else RED if v < 0.8 else GREY for v in s]
-    return _oscillator(df, "AD_Ratio", "Daily ADR", 1.0, GREEN_FILL, RED_FILL, colors,
-                       "A/D Ratio", _padded_range(s, 0.5, 1.5, 0.1))
-
-
-def plot_ad_line(df):
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=df.index, y=df["AD_Line"], mode="lines", name="A/D Line",
-        line=dict(color=CYAN, width=2), fill="tozeroy", fillcolor="rgba(6, 182, 212, 0.1)",
-    ))
-    return _base_layout(fig, "Cumulative Net Advances")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# INSTITUTIONAL VIEWS
-# ══════════════════════════════════════════════════════════════════════════════
-
-AMBER = "#f59e0b"
-PURPLE = "#a78bfa"
-REGIME_BANDS = [  # (lo, hi, fill)
-    (70, 100, "rgba(16,185,129,0.20)"),
-    (55, 70, "rgba(16,185,129,0.09)"),
-    (30, 45, "rgba(239,68,68,0.09)"),
-    (0, 30, "rgba(239,68,68,0.20)"),
-]
-EVENT_STYLE = {
-    "bullish": dict(symbol="triangle-up", color=GREEN),
-    "bearish": dict(symbol="triangle-down", color=RED),
-}
-
-
-def _dark(fig: go.Figure, height: int) -> go.Figure:
+def _style(fig: go.Figure, height: int) -> go.Figure:
     fig.update_layout(
         template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="#1A1A1A", height=height,
-        margin=dict(l=10, r=10, t=30, b=10), font=dict(family="Inter", color="#EAEAEA"),
-        hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.0, x=0, bgcolor="rgba(0,0,0,0)"),
+        margin=dict(l=10, r=10, t=30, b=10), font=dict(family="Inter", color=TEXT), hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.0, x=0, bgcolor="rgba(0,0,0,0)"),
     )
     fig.update_xaxes(showgrid=True, gridcolor="rgba(42,42,42,0.5)")
     fig.update_yaxes(showgrid=True, gridcolor="rgba(42,42,42,0.5)")
     return fig
 
 
-def plot_overview(view: pd.DataFrame, price: pd.Series, events: dict, price_label: str) -> go.Figure:
-    """Benchmark with signal markers (top) over the Health Score with regime bands (bottom)."""
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.6, 0.4], vertical_spacing=0.04)
+def _zone_segments(zone: pd.Series):
+    """(start, end, zone) runs of consecutive sessions in the same zone."""
+    if zone.empty:
+        return []
+    run = (zone != zone.shift()).cumsum()
+    return [(g.index[0], g.index[-1], g.iloc[0]) for _, g in zone.groupby(run)]
+
+
+def plot_cycle(view: pd.DataFrame, price: pd.Series, price_label: str) -> go.Figure:
+    """Index with zone shading, the two breadth oscillators with zone bands, and A/D momentum."""
+    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, row_heights=[0.40, 0.38, 0.22], vertical_spacing=0.035)
     p = price.reindex(view.index)
-    fig.add_trace(go.Scatter(x=view.index, y=p, name=price_label, line=dict(color=GOLD, width=2)), 1, 1)
-    for key, flags in events.items():
-        f = flags.reindex(view.index).fillna(False).astype(bool)
-        if not f.any():
-            continue
-        sd = SIGNAL_BY_KEY[key]
-        style = EVENT_STYLE.get(sd.bias, dict(symbol="circle", color=GREY))
-        fig.add_trace(go.Scatter(
-            x=view.index[f], y=p[f], mode="markers", name=sd.label,
-            marker=dict(size=11, line=dict(width=1, color="#0F0F0F"), **style),
-        ), 1, 1)
-    fig.add_trace(go.Scatter(x=view.index, y=view["Health_Score"], name="Health Score",
-                             line=dict(color=CYAN, width=2)), 2, 1)
-    # Shapes must follow the trace: Plotly skips subplots that are still empty.
-    for lo, hi, fill in REGIME_BANDS:
-        fig.add_hrect(y0=lo, y1=hi, fillcolor=fill, line_width=0, layer="below", row=2, col=1)
+    fig.add_trace(go.Scatter(x=view.index, y=p, name=price_label, line=dict(color=TEXT, width=1.8)), 1, 1)
+    fig.add_trace(go.Scatter(x=view.index, y=view["Relative_Breadth"], name="Relative Breadth",
+                             line=dict(color=GOLD, width=2.6)), 2, 1)
+    fig.add_trace(go.Scatter(x=view.index, y=view["Custom_Breadth"], name="Custom Breadth",
+                             line=dict(color=CYAN, width=1.3)), 2, 1)
+    rel = view["Rel_AD_Ratio"]
+    fig.add_trace(go.Bar(x=view.index, y=rel, name="Relative A/D Ratio",
+                         marker_color=[GREEN if v > 0 else RED for v in rel.fillna(0)]), 3, 1)
+
+    # Shapes after traces: Plotly skips subplots that are still empty.
+    for start, end, z in _zone_segments(view["Zone"]):
+        if z != "NEUTRAL":
+            fig.add_vrect(x0=start - pd.Timedelta(hours=12), x1=end + pd.Timedelta(hours=12), line_width=0,
+                          fillcolor=OS_FILL if z == "OVERSOLD" else OB_SHADE, layer="below", row=1, col=1)
+    lo = min(0.30, float(view[["Relative_Breadth", "Custom_Breadth"]].min().min()) - 0.02)
+    hi = max(0.62, float(view[["Relative_Breadth", "Custom_Breadth"]].max().max()) + 0.02)
+    fig.add_hrect(y0=lo, y1=OVERSOLD, fillcolor=OS_FILL, line_width=0, layer="below", row=2, col=1)
+    fig.add_hrect(y0=OVERBOUGHT, y1=hi, fillcolor=OB_FILL, line_width=0, layer="below", row=2, col=1)
+    fig.add_hline(y=OVERSOLD, line=dict(color=GREEN, width=1, dash="dash"), row=2, col=1)
+    fig.add_hline(y=OVERBOUGHT, line=dict(color=AMBER, width=1, dash="dash"), row=2, col=1)
+    fig.add_hline(y=MIDLINE, line=dict(color="rgba(255,255,255,0.15)", width=1), row=2, col=1)
+    fig.add_hline(y=0, line=dict(color="rgba(255,255,255,0.25)", width=1), row=3, col=1)
+
     fig.update_yaxes(title_text=price_label, row=1, col=1)
-    fig.update_yaxes(title_text="Health (0-100)", range=[0, 100], row=2, col=1)
-    return _dark(fig, 560)
+    fig.update_yaxes(title_text="Breadth", range=[lo, hi], row=2, col=1)
+    fig.update_yaxes(title_text="A/D momentum", row=3, col=1)
+    return _style(fig, 720)
 
 
-def plot_participation(view: pd.DataFrame) -> go.Figure:
+def plot_ad_ratio(view: pd.DataFrame) -> go.Figure:
+    """Daily A/D ratio around 1.0 with its 10-session average."""
+    s = view["AD_Ratio"]
+    colors = [GREEN if v > 1.2 else RED if v < 0.8 else GREY for v in s]
     fig = go.Figure()
-    for w, color in ((20, GREY), (50, GOLD), (200, CYAN)):
-        fig.add_trace(go.Scatter(x=view.index, y=view[f"Pct_Above_{w}"], name=f"% above {w}-DMA",
-                                 line=dict(color=color, width=2 if w != 20 else 1)))
-    for y, c in ((80, "rgba(239,68,68,0.5)"), (50, "rgba(255,255,255,0.2)"), (20, "rgba(16,185,129,0.5)")):
-        fig.add_hline(y=y, line=dict(color=c, width=1, dash="dash" if y != 50 else "solid"))
-    fig.update_yaxes(title_text="% of constituents", range=[0, 100])
-    return _dark(fig, 380)
-
-
-def plot_highs_lows(view: pd.DataFrame) -> go.Figure:
-    fig = go.Figure()
-    fig.add_trace(go.Bar(x=view.index, y=view["New_Highs"], name="New 52W highs", marker_color=GREEN))
-    fig.add_trace(go.Bar(x=view.index, y=-view["New_Lows"], name="New 52W lows", marker_color=RED,
-                         customdata=view["New_Lows"], hovertemplate="%{customdata}"))
-    fig.add_trace(go.Scatter(x=view.index, y=view["NH_NL"].rolling(10, min_periods=1).mean(),
-                             name="Net (10-session avg)", line=dict(color=GOLD, width=2)))
-    fig.update_layout(barmode="relative")
-    fig.update_yaxes(title_text="Count")
-    return _dark(fig, 360)
-
-
-def plot_mcclellan(view: pd.DataFrame) -> go.Figure:
-    fig = make_subplots(specs=[[{"secondary_y": True}]])
-    osc = view["McClellan_Osc"]
-    fig.add_trace(go.Bar(x=view.index, y=osc, name="McClellan Oscillator",
-                         marker_color=[GREEN if v > 0 else RED for v in osc]), secondary_y=False)
-    fig.add_trace(go.Scatter(x=view.index, y=view["McClellan_Sum"], name="Summation Index (window)",
-                             line=dict(color=PURPLE, width=2)), secondary_y=True)
-    fig.update_yaxes(title_text="Oscillator (ratio-adjusted)", secondary_y=False)
-    fig.update_yaxes(title_text="Summation", tickformat=",.0f", secondary_y=True, showgrid=False)
-    return _dark(fig, 380)
-
-
-def plot_volume_breadth(view: pd.DataFrame) -> go.Figure:
-    fig = make_subplots(specs=[[{"secondary_y": True}]])
-    ratio = view["UpDown_Value_Ratio"]
-    fig.add_trace(go.Bar(x=view.index, y=ratio, name="Up/Down traded value",
-                         marker_color=[GREEN if v > 1 else RED for v in ratio.fillna(1)]), secondary_y=False)
-    trin = view["TRIN"].rolling(10, min_periods=1).mean()
-    fig.add_trace(go.Scatter(x=view.index, y=trin, name="TRIN (10-session avg)",
-                             line=dict(color=AMBER, width=2)), secondary_y=True)
+    fig.add_trace(go.Bar(x=view.index, y=s - 1, base=1, name="A/D ratio", marker_color=colors,
+                         customdata=s, hovertemplate="%{customdata:.2f}"))
+    fig.add_trace(go.Scatter(x=view.index, y=view["ADR_MA10"], name="10-session average",
+                             line=dict(color=GOLD, width=2)))
     fig.add_hline(y=1.0, line=dict(color="rgba(255,255,255,0.3)", width=1))
     ticks = [0.1, 0.25, 0.5, 1, 2, 4, 10]
-    fig.update_yaxes(title_text="Up / Down value", type="log", tickvals=ticks, ticktext=[f"{t:g}" for t in ticks],
-                     secondary_y=False)
-    fig.update_yaxes(title_text="TRIN", tickformat=".2f", secondary_y=True, showgrid=False)
-    return _dark(fig, 360)
+    fig.update_yaxes(title_text="Advancers ÷ decliners", type="log", tickvals=ticks,
+                     ticktext=[f"{t:g}" for t in ticks])
+    return _style(fig, 340)
 
 
-def plot_sector_heatmap(history: pd.DataFrame, freq: str = "W-FRI") -> go.Figure:
-    """Sectors x weeks heatmap of % members above 50-DMA."""
-    h = history.resample(freq).last().dropna(how="all")
-    order = h.iloc[-1].sort_values().index if len(h) else h.columns
-    h = h[order]
+def plot_ad_line(view: pd.DataFrame) -> go.Figure:
+    """Cumulative net advances with its 50-session average (the longer breadth trend)."""
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=view.index, y=view["AD_Line"], name="A/D line",
+                             line=dict(color=CYAN, width=2), fill="tozeroy", fillcolor="rgba(6,182,212,0.08)"))
+    fig.add_trace(go.Scatter(x=view.index, y=view["AD_Line_MA50"], name="50-session average",
+                             line=dict(color=GREY, width=1.5, dash="dot")))
+    fig.update_yaxes(title_text="Cumulative net advances")
+    return _style(fig, 340)
+
+
+def plot_sector_heatmap(sector_osc: dict, start, end) -> go.Figure:
+    """Weekly Relative Breadth by sector, coloured by zone."""
+    frame = pd.DataFrame({s: o["Relative_Breadth"] for s, o in sector_osc.items()})
+    frame = frame.loc[pd.Timestamp(start):pd.Timestamp(end)].resample("W-FRI").last().dropna(how="all")
+    if frame.empty:
+        return _style(go.Figure(), 300)
+    # Highest latest reading at the bottom, so oversold sectors sit at the top (as in the sector table).
+    frame = frame[frame.iloc[-1].sort_values(ascending=False).index]
+    zmin, zmax = 0.30, 0.62
+    pos = lambda v: (v - zmin) / (zmax - zmin)  # noqa: E731
+    scale = [[0, GREEN], [pos(OVERSOLD), "rgba(16,185,129,0.35)"], [pos(OVERSOLD) + 0.001, "#2A2A2A"],
+             [pos(OVERBOUGHT), "#2A2A2A"], [pos(OVERBOUGHT) + 0.001, "rgba(245,158,11,0.35)"], [1, AMBER]]
     fig = go.Figure(go.Heatmap(
-        z=h.T.to_numpy(), x=h.index, y=list(h.columns), zmin=0, zmax=100,
-        colorscale=[[0, RED], [0.5, "#2A2A2A"], [1, GREEN]],
-        colorbar=dict(title="% > 50DMA"), hovertemplate="%{y}<br>%{x|%d %b %Y}: %{z:.0f}%<extra></extra>",
+        z=frame.T.to_numpy(), x=frame.index, y=list(frame.columns), zmin=zmin, zmax=zmax, colorscale=scale,
+        colorbar=dict(title="Relative<br>Breadth", tickvals=[0.30, OVERSOLD, OVERBOUGHT, 0.60]),
+        hovertemplate="%{y}<br>week to %{x|%d %b %Y}: %{z:.3f}<extra></extra>",
     ))
-    return _dark(fig, max(300, 26 * len(h.columns) + 80))
-
-
-def plot_regime_returns(table: pd.DataFrame, horizon: int = 21) -> go.Figure:
-    col = f"Avg {horizon}D %"
-    colors = [GREEN if v > 0 else RED for v in table[col].fillna(0)]
-    fig = go.Figure(go.Bar(x=table["Regime"], y=table[col], marker_color=colors,
-                           text=[f"n={n}" for n in table["Sessions"]], textposition="outside"))
-    fig.update_yaxes(title_text=f"Avg forward {horizon}-session return %")
-    return _dark(fig, 340)
+    return _style(fig, max(320, 24 * frame.shape[1] + 90))

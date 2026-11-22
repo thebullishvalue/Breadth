@@ -167,3 +167,25 @@ button[kind="header"] { z-index: 999999 !important; }
 .desk-note h4 { color: var(--primary-color); margin: 0 0 0.5rem 0; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; }
 .desk-note ul { margin: 0; padding-left: 1.1rem; color: var(--text-primary); font-size: 0.92rem; line-height: 1.7; }
 .chart-caption { color: #888888; font-size: 0.85rem; margin-top: -0.5rem; }
+
+/* ── v3: breadth reading ─────────────────────────────────────────────── */
+.hero { display: grid; grid-template-columns: 1fr 1.4fr; gap: 1.5rem; background: var(--bg-card);
+        border: 1px solid var(--border-color); border-radius: 14px; padding: 1.4rem 1.6rem; margin: 0.5rem 0 1.2rem 0; }
+@media (max-width: 900px) { .hero { grid-template-columns: 1fr; } }
+.hero .eyebrow { color: var(--text-muted); font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 0.35rem; }
+.hero .zone { font-size: 2.4rem; font-weight: 800; letter-spacing: -0.5px; line-height: 1.1; }
+.hero .zone.success { color: var(--success-green); }
+.hero .zone.warning { color: var(--warning-amber); }
+.hero .zone.neutral { color: var(--text-primary); }
+.hero .meaning { color: var(--text-muted); font-size: 0.92rem; line-height: 1.55; margin-top: 0.5rem; }
+.hero .figure { color: var(--text-primary); font-size: 0.95rem; margin-top: 0.6rem; }
+.hero .verdict { color: var(--text-primary); font-size: 0.92rem; line-height: 1.6; margin-top: 0.5rem; }
+.hero .right { border-left: 1px solid var(--border-color); padding-left: 1.5rem; }
+@media (max-width: 900px) { .hero .right { border-left: none; padding-left: 0; border-top: 1px solid var(--border-color); padding-top: 1rem; } }
+.panel { background: var(--secondary-background-color); border: 1px solid var(--border-color); border-radius: 12px;
+         padding: 1.1rem 1.3rem; height: 100%; }
+.panel h4 { color: var(--primary-color); margin: 0 0 0.6rem 0; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1.2px; }
+.panel p { color: var(--text-primary); font-size: 0.92rem; line-height: 1.65; margin: 0 0 0.6rem 0; }
+.panel ul { margin: 0; padding-left: 1.1rem; color: var(--text-primary); font-size: 0.92rem; line-height: 1.65; }
+.panel li { margin-bottom: 0.5rem; }
+.panel strong { color: #FFFFFF; }
